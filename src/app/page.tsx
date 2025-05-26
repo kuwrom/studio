@@ -136,12 +136,11 @@ function VideoScriptAIPageContent() {
     }
   }, [
     toast, 
-    setFullConversationText, // Keep setFullConversationText as a dep
+    setFullConversationText, 
     setCurrentSummary, 
     setActiveConversationId, 
     setGeneratedScript, 
     setIsSummarizing
-    // fullConversationTextRef is not needed as a dep for useCallback
   ]);
 
 
@@ -161,7 +160,7 @@ function VideoScriptAIPageContent() {
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
     }
-  }, [setIsMicButtonPressed, setIsActivelyListening]); // Add setIsActivelyListening
+  }, [setIsMicButtonPressed, setIsActivelyListening]);
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -233,7 +232,7 @@ function VideoScriptAIPageContent() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleUserForceStop]); // handleUserForceStop is stable
+  }, [toast, handleUserForceStop]); 
 
 
   const handleTextInputSubmit = async (e: FormEvent) => {
@@ -264,6 +263,10 @@ function VideoScriptAIPageContent() {
       recognitionRef.current.start();
     } catch (error: any) {
       console.error("Error starting recognition:", error);
+      if (error.name === 'InvalidStateError' && recognitionRef.current) { 
+          console.warn("SpeechRecognition InvalidStateError on start. Attempting to abort.");
+          recognitionRef.current.abort(); // Try to abort if it's in a weird state
+      }
       toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       
       // Robust cleanup if start() fails
@@ -272,10 +275,6 @@ function VideoScriptAIPageContent() {
       setIsAttemptingToListen(false);
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
-       if (error.name === 'InvalidStateError' && recognitionRef.current) { 
-          console.warn("SpeechRecognition InvalidStateError on start. Attempting to abort.");
-          recognitionRef.current.abort(); // Try to abort if it's in a weird state
-      }
     }
   };
 
@@ -389,7 +388,7 @@ function VideoScriptAIPageContent() {
       </CardHeader>
 
       <div
-        className="flex-grow flex flex-col items-center justify-center text-center cursor-pointer min-h-[200px] sm:min-h-[300px] select-none" // Added select-none
+        className="flex-grow flex flex-col items-center justify-center text-center cursor-pointer min-h-[200px] sm:min-h-[300px] select-none" 
         onMouseDown={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
           if (!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded')) {
@@ -480,6 +479,7 @@ function VideoScriptAIPageContent() {
 
     const deltaY = e.touches[0].clientY - touchStartRef.current.y;
 
+    // Only minimize if swiping down AND content is at the top
     if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
       setGenerateSheetState('minimized');
       touchStartRef.current = null; 
@@ -663,3 +663,4 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
+
