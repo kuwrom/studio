@@ -71,6 +71,7 @@ function VideoScriptAIPageContent() {
             setActiveConversationId(mostRecentConvo.id);
             setCurrentSummary(mostRecentConvo.summary);
             setGeneratedScript(mostRecentConvo.script);
+            setFullConversationText(mostRecentConvo.summary); // Initialize fullConversationText from loaded history
         }
       }
     } catch (error) {
@@ -79,7 +80,7 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, fullConversationText, currentSummary, toast, setGeneratedScript, setCurrentSummary, setActiveConversationId]);
+  }, [user, activeConversationId, fullConversationText, currentSummary, toast, setGeneratedScript, setCurrentSummary, setActiveConversationId, setFullConversationText]);
 
 
   useEffect(() => {
@@ -89,42 +90,33 @@ function VideoScriptAIPageContent() {
   }, [user, generateSheetState, fetchConversationsCallback]);
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    let newCombinedTextForAI = "";
-
-    // Use a temporary variable to hold the text that will be sent to the AI
-    // Update fullConversationText using functional update
-    setFullConversationText(prevFullConversationText => {
-      const updatedText = newIdeaChunk.trim()
-        ? (prevFullConversationText ? `${prevFullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
-        : prevFullConversationText;
-      newCombinedTextForAI = updatedText; // Capture the most up-to-date text
-      return updatedText;
-    });
-
-    // This needs to run after setFullConversationText has effectively updated newCombinedTextForAI
-    // However, state updates are async. The `newCombinedTextForAI` above will be the correct one.
-
-    if (!newCombinedTextForAI.trim() && !newIdeaChunk.trim()) { // Check if there's anything to summarize
-        setCurrentSummary('');
-        setIsSummarizing(false); // Ensure summarizing is reset if we bail early
-        return;
-    }
-    
-    setIsSummarizing(true);
+    const updatedTextForAISummary = (() => {
+      let capturedText = '';
+      setFullConversationText(prevFullConversationText => {
+        const newText = newIdeaChunk.trim()
+          ? (prevFullConversationText ? `${prevFullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
+          : prevFullConversationText;
+        capturedText = newText;
+        return newText;
+      });
+      return capturedText;
+    })();
 
     if (newIdeaChunk.trim()) {
         setActiveConversationId(null);
         setGeneratedScript('');
     }
 
-    if (!newCombinedTextForAI.trim()) { // Redundant check, but safe
-      setCurrentSummary('');
-      setIsSummarizing(false);
-      return;
+    if (!updatedTextForAISummary.trim()) {
+        setCurrentSummary('');
+        setIsSummarizing(false);
+        return;
     }
+    
+    setIsSummarizing(true);
 
     try {
-      const result = await summarizeVideoIdea({ input: newCombinedTextForAI });
+      const result = await summarizeVideoIdea({ input: updatedTextForAISummary });
       setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
@@ -145,10 +137,11 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false); 
-    setIsActivelyListening(false); //  Set this immediately for UI responsiveness
+    setIsActivelyListening(false);
+    setIsAttemptingToListen(false);
     
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); // Use stop() to get results
+      recognitionRef.current.stop(); 
     }
   }, []);
 
@@ -177,7 +170,6 @@ function VideoScriptAIPageContent() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
-          // Call the latest version of handleSummarizeIdea via ref
           await handleSummarizeIdeaRef.current(transcript);
         };
 
@@ -277,7 +269,11 @@ function VideoScriptAIPageContent() {
       return;
     }
 
-    const ideaToUseForScript = currentSummary || fullConversationText.trim();
+    let ideaToUseForScript = currentSummary || fullConversationText.trim();
+    if (!ideaToUseForScript && fullConversationText.trim()) { // Fallback if currentSummary is empty but fullConversationText exists
+      ideaToUseForScript = fullConversationText.trim();
+    }
+    
     if (!ideaToUseForScript) {
       toast({ title: 'Idea Required', description: 'First, provide an idea by speaking or typing.', variant: 'destructive' });
       return;
@@ -285,8 +281,9 @@ function VideoScriptAIPageContent() {
     setIsGeneratingScript(true);
     let summaryForScript = currentSummary;
 
+    // If currentSummary is empty but fullConversationText is not, try to summarize fullConversationText
     if (!summaryForScript && fullConversationText.trim()) {
-      setIsSummarizing(true);
+      setIsSummarizing(true); // Indicate summarization process
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() });
         summaryForScript = tempSummaryResult.summary;
@@ -331,7 +328,9 @@ function VideoScriptAIPageContent() {
     setGeneratedScript('');
     setActiveConversationId(null);
     setVideoIdeaInput('');
-    setGenerateSheetState('minimized'); 
+    if (generateSheetState === 'expanded') {
+        setGenerateSheetState('minimized');
+    }
   };
 
   const handleHistoryItemClick = async (conversation: Conversation) => {
@@ -339,12 +338,11 @@ function VideoScriptAIPageContent() {
     setCurrentSummary(conversation.summary);
     setGeneratedScript(conversation.script);
     setActiveConversationId(conversation.id);
-    setFullConversationText(''); 
+    setFullConversationText(conversation.summary); 
     setVideoIdeaInput('');
 
     try {
       await updateLastOpened(user.uid, conversation.id);
-      // No need to call fetchConversationsCallback here, reordering can happen on next sheet open
     } catch (error) {
       console.error("Error updating last opened:", error);
       toast({title: "Error", description: "Could not update conversation timestamp.", variant: "destructive"});
@@ -625,3 +623,4 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
+
