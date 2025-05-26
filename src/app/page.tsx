@@ -107,11 +107,11 @@ function VideoScriptAIPageContent() {
       }
     } catch (error) {
       console.error("Error fetching conversations:", error);
-      toast({ title: "Error", description: "Could not load conversation history.", variant: "destructive" });
+      // toast({ title: "Error", description: "Could not load conversation history.", variant: "destructive" });
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, toast]); // Removed fullConversationTextRef, currentSummary, generatedScript as they are not needed for fetching
+  }, [user, activeConversationId, toast, generatedScript, currentSummary ]);
 
 
   useEffect(() => {
@@ -122,19 +122,19 @@ function VideoScriptAIPageContent() {
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     let textThatWillBeSummarized: string;
-    const currentTextFromRef = fullConversationTextRef.current;
   
     if (newIdeaChunk.trim()) {
       setActiveConversationId(null);
       setGeneratedScript('');
-      textThatWillBeSummarized = currentTextFromRef
-        ? `${currentTextFromRef}\n\n${newIdeaChunk}`
+      // Use ref for reading and direct value for appending
+      textThatWillBeSummarized = fullConversationTextRef.current
+        ? `${fullConversationTextRef.current}\n\n${newIdeaChunk}`
         : newIdeaChunk;
     } else {
-      textThatWillBeSummarized = currentTextFromRef;
+      textThatWillBeSummarized = fullConversationTextRef.current;
     }
     
-    setFullConversationText(textThatWillBeSummarized);
+    setFullConversationText(textThatWillBeSummarized); // Update state for next render
   
     if (!textThatWillBeSummarized.trim()) {
       setCurrentSummary('');
@@ -148,15 +148,14 @@ function VideoScriptAIPageContent() {
       setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing or adding more details.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
-      toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
+      // toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
       setCurrentSummary('Failed to get summary. Please try again.');
     } finally {
       setIsSummarizing(false);
     }
   }, [
     toast, 
-    // Removed fullConversationText from dependencies, using fullConversationTextRef.current instead
-    setFullConversationText, 
+    setFullConversationText, // Keep setter for state update
     setCurrentSummary, 
     setActiveConversationId, 
     setGeneratedScript, 
@@ -172,13 +171,16 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
+    // Immediate UI reset for responsiveness
     setIsMicButtonPressed(false);
-    // setIsActivelyListening(false); // This will be handled by onend or onerror
+    setIsActivelyListening(false);
+    setIsAttemptingToListen(false);
+
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
     }
-  }, [setIsMicButtonPressed]); // Removed setIsActivelyListening from dependencies
+  }, [setIsMicButtonPressed, setIsActivelyListening, setIsAttemptingToListen]);
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -190,13 +192,13 @@ function VideoScriptAIPageContent() {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
-        recognitionInstance.continuous = false;
+        recognitionInstance.continuous = false; // Important for push-to-talk
         recognitionInstance.interimResults = false; 
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
-          setIsAttemptingToListen(false);
+          setIsAttemptingToListen(false); // Successfully started, no longer just "attempting"
         };
 
         recognitionInstance.onresult = async (event) => {
@@ -204,18 +206,20 @@ function VideoScriptAIPageContent() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
+          // Call the latest version of handleSummarizeIdea via ref
           await handleSummarizeIdeaRef.current(transcript);
         };
 
         recognitionInstance.onerror = (event) => {
           if (event.error !== 'no-speech' && event.error !== 'aborted') {
              console.error('Speech recognition error', event.error);
-            toast({
-              title: 'Speech Recognition Error',
-              description: `Error: ${event.error}. Please ensure microphone permissions are granted.`,
-              variant: 'destructive',
-            });
+            // toast({ // Consider if toast is desired for all errors
+            //   title: 'Speech Recognition Error',
+            //   description: `Error: ${event.error}. Ensure mic permissions.`,
+            //   variant: 'destructive',
+            // });
           }
+          // Final cleanup: reset all listening-related states
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
           setIsAttemptingToListen(false);
@@ -224,6 +228,7 @@ function VideoScriptAIPageContent() {
         };
 
         recognitionInstance.onend = () => {
+          // Final cleanup: reset all listening-related states
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
           setIsAttemptingToListen(false);
@@ -232,25 +237,26 @@ function VideoScriptAIPageContent() {
         };
         recognitionRef.current = recognitionInstance;
       } else {
-        toast({
-          title: 'Speech Recognition Not Supported',
-          description: 'Please use a browser that supports Web Speech API, or use text input.',
-          variant: 'destructive',
-        });
+        // toast({
+        //   title: 'Speech Recognition Not Supported',
+        //   description: 'Please use a browser that supports Web Speech API, or use text input.',
+        //   variant: 'destructive',
+        // });
       }
     }
     return () => { 
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); 
+        recognitionRef.current.abort(); // Ensure abortion on component unmount
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
       }
+      // Ensure cleanup of global listeners on unmount
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleUserForceStop]); 
+  }, [toast, handleUserForceStop]); // handleUserForceStop is stable due to its own useCallback with empty deps
 
 
   const handleTextInputSubmit = async (e: FormEvent) => {
@@ -260,44 +266,46 @@ function VideoScriptAIPageContent() {
       setVideoIdeaInput('');
       await handleSummarizeIdea(currentInput);
     } else {
-       toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
+       // toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
     }
   };
 
   const handleMicButtonInteractionStart = () => {
     if (!recognitionRef.current) {
-      toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
+      // toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
+    // Prevent starting if already attempting, listening, summarizing, or sheet is expanded
     if (isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') {
       return;
     }
 
     try {
-      setIsAttemptingToListen(true);
+      setIsAttemptingToListen(true); // Set lock immediately
       setIsMicButtonPressed(true); 
+      // Add listeners *before* starting recognition
       window.addEventListener('mouseup', handleUserForceStopRef.current);
       window.addEventListener('touchend', handleUserForceStopRef.current);
       recognitionRef.current.start();
     } catch (error: any) {
       console.error("Error starting recognition:", error);
-      if (error.name === 'InvalidStateError' && recognitionRef.current) { 
-          console.warn("SpeechRecognition InvalidStateError on start. Attempting to abort and reset state.");
-          recognitionRef.current.abort(); // Attempt to abort if already started
-      }
-      toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
+      // toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       
+      // Ensure all states are reset and listeners removed if start() fails
       setIsMicButtonPressed(false);
       setIsActivelyListening(false); 
       setIsAttemptingToListen(false);
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
+      if (recognitionRef.current && error.name === 'InvalidStateError') { 
+          recognitionRef.current.abort();
+      }
     }
   };
 
   const handleGenerateScript = async () => {
     if (!user) {
-      toast({ title: 'Authentication Required', description: 'Please sign in to generate and save scripts.', variant: 'destructive' });
+      // toast({ title: 'Authentication Required', description: 'Please sign in to generate and save scripts.', variant: 'destructive' });
       return;
     }
 
@@ -307,7 +315,7 @@ function VideoScriptAIPageContent() {
     }
     
     if (!ideaToUseForScript) {
-      toast({ title: 'Idea Required', description: 'First, provide an idea by speaking or typing.', variant: 'destructive' });
+      // toast({ title: 'Idea Required', description: 'First, provide an idea by speaking or typing.', variant: 'destructive' });
       return;
     }
     setIsGeneratingScript(true);
@@ -321,7 +329,7 @@ function VideoScriptAIPageContent() {
         if (summaryForScript) setCurrentSummary(summaryForScript); 
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
-        toast({ title: 'Summarization Failed', description: 'Could not summarize the idea. Please try again.', variant: 'destructive' });
+        // toast({ title: 'Summarization Failed', description: 'Could not summarize the idea. Please try again.', variant: 'destructive' });
         setIsGeneratingScript(false);
         setIsSummarizing(false);
         return;
@@ -331,7 +339,7 @@ function VideoScriptAIPageContent() {
     }
     
     if (!summaryForScript) { 
-        toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
+        // toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
     }
@@ -351,7 +359,7 @@ function VideoScriptAIPageContent() {
       
     } catch (error) {
       console.error('Error generating or saving script:', error);
-      toast({ title: 'Error Generating Script', description: 'Could not generate or save the script. Please try again.', variant: 'destructive' });
+      // toast({ title: 'Error Generating Script', description: 'Could not generate or save the script. Please try again.', variant: 'destructive' });
     } finally {
       setIsGeneratingScript(false);
     }
@@ -377,15 +385,15 @@ function VideoScriptAIPageContent() {
     setFullConversationText(conversation.fullConversation || conversation.summary);
     setActiveConversationId(conversation.id);
     setVideoIdeaInput('');
-    // The video form and length settings will retain their current values,
-    // allowing the user to apply them to the loaded history item if they choose to regenerate.
-    // They are only reset when "handleNewIdea" is called.
+    // Video form and length settings are intentionally not reset here.
+    // They will apply if the user decides to re-generate based on this loaded item.
+    // They are reset only by handleNewIdea.
 
     try {
       await updateLastOpened(user.uid, conversation.id);
     } catch (error) {
       console.error("Error updating last opened:", error);
-      toast({title: "Error", description: "Could not update conversation timestamp.", variant: "destructive"});
+      // toast({title: "Error", description: "Could not update conversation timestamp.", variant: "destructive"});
     }
   };
   
@@ -413,7 +421,10 @@ function VideoScriptAIPageContent() {
       </CardHeader>
 
       <div
-        className="flex-grow flex flex-col items-center justify-center text-center cursor-pointer min-h-[200px] sm:min-h-[300px] select-none" 
+        className={cn(
+            "flex-grow flex flex-col items-center justify-center text-center min-h-[200px] sm:min-h-[300px] select-none",
+            !(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') && "cursor-pointer"
+        )} 
         onMouseDown={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
           if (!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded')) {
@@ -424,6 +435,7 @@ function VideoScriptAIPageContent() {
         aria-label="Press and hold in this area to speak your video idea, or type below"
         role="button"
         tabIndex={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? 0 : -1}
+        disabled={isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded'}
       >
         <div
           id="aiSummaryDisplay"
@@ -724,4 +736,4 @@ export default function Page() {
   return <VideoScriptAIPageContent />;
 }
 
-    
+  
