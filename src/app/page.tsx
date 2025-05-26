@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, Sparkles, Mic, RotateCcw } from 'lucide-react';
+import { Send, Sparkles, Mic, RotateCcw, LogOut } from 'lucide-react'; // Added LogOut
 import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
 import { generateVideoScript } from '@/ai/flows/generate-video-script';
 import { useToast } from '@/hooks/use-toast';
@@ -35,7 +35,7 @@ const SWIPE_DOWN_THRESHOLD = 50;
 
 
 function VideoScriptAIPageContent() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth(); // Added signOut from useAuth
   const [generateSheetState, setGenerateSheetState] = useState<GenerateSheetState>('minimized');
   const [videoIdeaInput, setVideoIdeaInput] = useState('');
   const [fullConversationText, setFullConversationText] = useState('');
@@ -44,8 +44,8 @@ function VideoScriptAIPageContent() {
   const [isActivelyListening, setIsActivelyListening] = useState(false);
   const [isMicButtonPressed, setIsMicButtonPressed] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
-  const [generatedScript, setGeneratedScript] = useState('');
   const [isAttemptingToListen, setIsAttemptingToListen] = useState(false);
+  const [generatedScript, setGeneratedScript] = useState('');
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -99,18 +99,16 @@ function VideoScriptAIPageContent() {
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     const currentTextFromRef = fullConversationTextRef.current;
     
-    const textThatWillBeSummarized = (() => {
-      if (newIdeaChunk.trim()) {
-        return currentTextFromRef
-          ? `${currentTextFromRef}\n\n${newIdeaChunk}`
-          : newIdeaChunk;
-      }
-      return currentTextFromRef;
-    })();
+    let textThatWillBeSummarized: string;
 
     if (newIdeaChunk.trim()) {
       setActiveConversationId(null); 
       setGeneratedScript('');     
+      textThatWillBeSummarized = currentTextFromRef
+        ? `${currentTextFromRef}\n\n${newIdeaChunk}`
+        : newIdeaChunk;
+    } else {
+      textThatWillBeSummarized = currentTextFromRef;
     }
     
     setFullConversationText(textThatWillBeSummarized);
@@ -124,7 +122,7 @@ function VideoScriptAIPageContent() {
     setIsSummarizing(true);
     try {
       const result = await summarizeVideoIdea({ input: textThatWillBeSummarized });
-      setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing.");
+      setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing or adding more details.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
       toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
@@ -134,10 +132,10 @@ function VideoScriptAIPageContent() {
     }
   }, [
     toast, 
-    setActiveConversationId, 
-    setGeneratedScript, 
     setFullConversationText, 
     setCurrentSummary, 
+    setActiveConversationId, 
+    setGeneratedScript, 
     setIsSummarizing
   ]);
 
@@ -351,7 +349,7 @@ function VideoScriptAIPageContent() {
     if (!user) return;
     setCurrentSummary(conversation.summary);
     setGeneratedScript(conversation.script);
-    setFullConversationText(conversation.fullConversation || conversation.summary); // Use full conversation
+    setFullConversationText(conversation.fullConversation || conversation.summary);
     setActiveConversationId(conversation.id);
     setVideoIdeaInput('');
 
@@ -372,8 +370,19 @@ function VideoScriptAIPageContent() {
 
   const renderDescribeArea = () => (
     <div className="flex-grow flex flex-col p-4 sm:p-6 bg-transparent relative h-full">
-      <CardHeader className="p-0 mb-4">
+      <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
         <CardTitle className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60">Storyy Idea</CardTitle>
+        {generateSheetState === 'minimized' && (
+            <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleNewIdea}
+            aria-label="Start new idea"
+            className="text-muted-foreground hover:text-foreground"
+            >
+            <RotateCcw className="h-5 w-5" />
+            </Button>
+        )}
       </CardHeader>
 
       <div
@@ -502,14 +511,28 @@ function VideoScriptAIPageContent() {
         ) : (
           <div className="flex flex-col h-full">
             <CardHeader
-              className="p-4 sm:p-6 cursor-pointer flex flex-row items-center justify-between relative"
-              onClick={() => setGenerateSheetState('minimized')}
-              role="button"
-              aria-label="Minimize script view"
+              className="p-4 sm:p-6 flex flex-row items-center justify-between relative"
             >
-              <CardTitle className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60 text-center flex-grow">Generate</CardTitle>
-              <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleNewIdea();}} aria-label="Start new idea" className="text-muted-foreground hover:text-foreground">
-                <RotateCcw className="h-5 w-5" />
+              <div className="w-10 h-10"></div> {/* Placeholder for symmetry */}
+              <CardTitle 
+                className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60 text-center flex-grow cursor-pointer"
+                onClick={() => setGenerateSheetState('minimized')}
+                role="button"
+                aria-label="Minimize script view"
+              >
+                Generate
+              </CardTitle>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={async (e) => { 
+                  e.stopPropagation(); 
+                  if (signOut) await signOut(); 
+                }} 
+                aria-label="Sign out" 
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <LogOut className="h-5 w-5" />
               </Button>
             </CardHeader>
             <CardContent
