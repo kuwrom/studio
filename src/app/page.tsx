@@ -70,7 +70,7 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
 
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      recognitionRef.current.stop(); // Use stop() to ensure result is processed
     }
     // Immediate UI update
     setIsActivelyListening(false);
@@ -102,6 +102,8 @@ export default function VideoScriptAIPage() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
+          // Even if transcript is empty (e.g. quick tap), call handleSummarizeIdea
+          // It will decide if an API call is needed or summary should be cleared
           await handleSummarizeIdea(transcript);
         };
 
@@ -137,9 +139,9 @@ export default function VideoScriptAIPage() {
       }
     }
 
-    return () => { // Cleanup function
+    return () => { 
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); // Ensure recognition stops on component unmount
+        recognitionRef.current.abort(); 
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -178,14 +180,15 @@ export default function VideoScriptAIPage() {
       console.error("Error starting recognition:", error);
       toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       setIsMicButtonPressed(false); 
-      setIsActivelyListening(false);
+      setIsActivelyListening(false); // Explicitly reset if start fails
 
       if (error.name === 'InvalidStateError') {
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
+        // Ensure window listeners are removed if they were somehow added before onstart
         window.removeEventListener('mouseup', handleUserForceStopRef.current);
         window.removeEventListener('touchend', handleUserForceStopRef.current);
         if (recognitionRef.current) {
-            recognitionRef.current.abort();
+            recognitionRef.current.abort(); // Try to abort to reset the API's internal state
         }
       }
     }
@@ -206,7 +209,7 @@ export default function VideoScriptAIPage() {
     let summaryForScript = currentSummary;
 
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
-      setIsSummarizing(true); // Show updating state while this internal summary happens
+      setIsSummarizing(true); 
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
         summaryForScript = tempSummaryResult.summary;
@@ -254,7 +257,7 @@ export default function VideoScriptAIPage() {
         onMouseDown={isActivelyListening || isSummarizing ? undefined : handleMicButtonInteractionStart}
         onTouchStart={(e) => {
           if (!(isActivelyListening || isSummarizing)) {
-            e.preventDefault();
+            e.preventDefault(); // Prevent potential double-tap zoom or other default touch behaviors
             handleMicButtonInteractionStart();
           }
         }}
@@ -318,6 +321,7 @@ export default function VideoScriptAIPage() {
               if (ideaExists) {
                 navigateTo('script');
               } else if (currentView === 'input' && !isGeneratingScript && !isActivelyListening && !isSummarizing){
+                // If on input view, no active processes, and no idea, try to generate (which will show toast)
                 handleGenerateScript();
               } else if (!ideaExists) {
                 toast({title: "No Idea Yet", description: "Please provide an idea first by speaking or typing.", variant: "default"});
@@ -367,6 +371,7 @@ export default function VideoScriptAIPage() {
     </div>
   );
 
+  // Helper components (can be moved to separate files if they grow)
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
@@ -386,7 +391,7 @@ export default function VideoScriptAIPage() {
         baseBorderThickness={3}
         amplitudeSensitivity={0.1}
         className="fixed inset-0 z-[1000] pointer-events-none"
-        borderColor="black" // Explicitly set to black
+        borderColor="black" 
       />
       <div
         className={cn(
@@ -407,3 +412,4 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
