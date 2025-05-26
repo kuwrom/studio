@@ -7,11 +7,9 @@ import { cn } from '@/lib/utils';
 interface AudioWaveVisualizerProps {
   isActive: boolean;
   className?: string;
-  // borderColor prop is removed, gradient is internal now
   baseBorderThickness?: number;
   amplitudeSensitivity?: number;
-  colorStart?: string; // Optional: for gradient start color
-  colorEnd?: string;   // Optional: for gradient end color
+  borderColor?: string; // Changed from colorStart/colorEnd to a single borderColor
 }
 
 const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
@@ -19,8 +17,7 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
   className,
   baseBorderThickness = 3,
   amplitudeSensitivity = 0.08,
-  colorStart = 'hsl(220, 90%, 60%)', // Default blue
-  colorEnd = 'hsl(var(--primary))',   // Default theme purple
+  borderColor = 'black', // Default to black
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -52,6 +49,7 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
 
       } catch (err) {
         console.error('Error initializing audio for visualizer:', err);
+        // If initialization fails, ensure isActive visual cues are also reset from parent if necessary
       }
     };
 
@@ -95,7 +93,7 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
     return () => {
       cleanupAudio();
     };
-  }, [isActive]);
+  }, [isActive]); // Only re-run if isActive changes
 
   const startDrawing = () => {
     const canvas = canvasRef.current;
@@ -104,12 +102,6 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
     }
     const canvasCtx = canvas.getContext('2d');
     if (!canvasCtx) return;
-
-    // Resolve actual color values if they are CSS variables
-    const resolvedColorEnd = colorEnd.startsWith('hsl(var(--primary))') 
-      ? getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() 
-      : colorEnd;
-    const finalColorEnd = resolvedColorEnd ? `hsl(${resolvedColorEnd})` : 'purple'; // fallback
 
     const drawBorder = () => {
       animationFrameIdRef.current = requestAnimationFrame(drawBorder);
@@ -127,33 +119,15 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
       const currentBorderThickness = Math.max(1, baseBorderThickness + dynamicThicknessAddition);
 
       canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+      canvasCtx.fillStyle = borderColor;
 
       // Top border
-      let gradient = canvasCtx.createLinearGradient(0, 0, 0, currentBorderThickness);
-      gradient.addColorStop(0, colorStart);
-      gradient.addColorStop(1, finalColorEnd);
-      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(0, 0, canvas.width, currentBorderThickness);
-
       // Bottom border
-      gradient = canvasCtx.createLinearGradient(0, canvas.height - currentBorderThickness, 0, canvas.height);
-      gradient.addColorStop(0, finalColorEnd);
-      gradient.addColorStop(1, colorStart);
-      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(0, canvas.height - currentBorderThickness, canvas.width, currentBorderThickness);
-
       // Left border
-      gradient = canvasCtx.createLinearGradient(0, 0, currentBorderThickness, 0);
-      gradient.addColorStop(0, colorStart);
-      gradient.addColorStop(1, finalColorEnd);
-      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(0, 0, currentBorderThickness, canvas.height);
-
       // Right border
-      gradient = canvasCtx.createLinearGradient(canvas.width - currentBorderThickness, 0, canvas.width, 0);
-      gradient.addColorStop(0, finalColorEnd);
-      gradient.addColorStop(1, colorStart);
-      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(canvas.width - currentBorderThickness, 0, currentBorderThickness, canvas.height);
     };
     drawBorder();

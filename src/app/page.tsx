@@ -30,9 +30,9 @@ export default function VideoScriptAIPage() {
   const [currentSummary, setCurrentSummary] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isActivelyListening, setIsActivelyListening] = useState(false);
-  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isMicButtonPressed, setIsMicButtonPressed] = useState(false);
-  const [generatedScript, setGeneratedScript] = useState(''); // Added missing state
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [generatedScript, setGeneratedScript] = useState('');
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -40,25 +40,18 @@ export default function VideoScriptAIPage() {
 
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    if (!newIdeaChunk.trim() && !fullConversationText.trim()) {
-      setIsActivelyListening(false);
-      setIsMicButtonPressed(false);
-      return;
-    }
-    
     setIsSummarizing(true);
-    const updatedConversation = newIdeaChunk.trim() 
+
+    const updatedConversation = newIdeaChunk.trim()
       ? (fullConversationText ? `${fullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
       : fullConversationText;
 
     setFullConversationText(updatedConversation);
 
     if (!updatedConversation.trim()) {
-        setIsSummarizing(false);
-        setIsActivelyListening(false);
-        setIsMicButtonPressed(false);
-        setCurrentSummary(''); 
-        return;
+      setCurrentSummary('');
+      setIsSummarizing(false);
+      return;
     }
 
     try {
@@ -71,17 +64,18 @@ export default function VideoScriptAIPage() {
       setIsSummarizing(false);
     }
   }, [fullConversationText, toast]);
-  
+
   const handleUserForceStop = useCallback(() => {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
-    
+
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); 
+      recognitionRef.current.stop();
     }
+    // Immediate UI update
     setIsActivelyListening(false);
     setIsMicButtonPressed(false);
-  }, []); 
+  }, []);
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -92,23 +86,25 @@ export default function VideoScriptAIPage() {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
-        recognitionInstance.continuous = false; 
+        recognitionInstance.continuous = false;
         recognitionInstance.interimResults = false;
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
+          // Add window listeners only after recognition has successfully started
           window.addEventListener('mouseup', handleUserForceStopRef.current);
           window.addEventListener('touchend', handleUserForceStopRef.current);
         };
 
         recognitionInstance.onresult = async (event) => {
-          const transcript = event.results[0][0].transcript;
-          if (transcript) {
-            await handleSummarizeIdea(transcript);
+          let transcript = '';
+          if (event.results && event.results[0] && event.results[0][0]) {
+            transcript = event.results[0][0].transcript;
           }
+          await handleSummarizeIdea(transcript);
         };
-        
+
         recognitionInstance.onerror = (event) => {
           if (event.error !== 'no-speech' && event.error !== 'aborted') {
             console.error('Speech recognition error', event.error);
@@ -130,7 +126,7 @@ export default function VideoScriptAIPage() {
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
           window.removeEventListener('touchend', handleUserForceStopRef.current);
         };
-        
+
         recognitionRef.current = recognitionInstance;
       } else {
         toast({
@@ -140,10 +136,10 @@ export default function VideoScriptAIPage() {
         });
       }
     }
-    
-    return () => {
+
+    return () => { // Cleanup function
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); 
+        recognitionRef.current.abort(); // Ensure recognition stops on component unmount
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -158,7 +154,7 @@ export default function VideoScriptAIPage() {
     e.preventDefault();
     const currentInput = videoIdeaInput.trim();
     if (currentInput) {
-      setVideoIdeaInput(''); 
+      setVideoIdeaInput('');
       await handleSummarizeIdea(currentInput);
     } else {
        toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
@@ -170,28 +166,27 @@ export default function VideoScriptAIPage() {
       toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
-    if (isActivelyListening || isSummarizing ) { 
+    if (isActivelyListening || isSummarizing ) {
       if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
       return;
     }
 
     try {
-      setIsMicButtonPressed(true); 
+      setIsMicButtonPressed(true);
       recognitionRef.current.start();
     } catch (error: any) {
-      setIsMicButtonPressed(false);
-      setIsActivelyListening(false); 
+      console.error("Error starting recognition:", error);
+      toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
+      setIsMicButtonPressed(false); 
+      setIsActivelyListening(false);
 
       if (error.name === 'InvalidStateError') {
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         window.removeEventListener('mouseup', handleUserForceStopRef.current);
         window.removeEventListener('touchend', handleUserForceStopRef.current);
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); 
+            recognitionRef.current.abort();
         }
-      } else {
-        console.error("Error starting recognition:", error);
-        toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       }
     }
   };
@@ -206,29 +201,33 @@ export default function VideoScriptAIPage() {
     }
 
     setIsGeneratingScript(true);
-    setGeneratedScript(''); 
+    setGeneratedScript('');
 
     let summaryForScript = currentSummary;
 
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
+      setIsSummarizing(true); // Show updating state while this internal summary happens
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript); 
+        setCurrentSummary(summaryForScript);
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
         setIsGeneratingScript(false);
+        setIsSummarizing(false);
         return;
+      } finally {
+        setIsSummarizing(false);
       }
     }
 
-    if (!summaryForScript) { 
+    if (!summaryForScript) {
         toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
     }
-    
+
     try {
       const result = await generateVideoScript({ contextSummary: summaryForScript });
       setGeneratedScript(result.script);
@@ -255,13 +254,13 @@ export default function VideoScriptAIPage() {
         onMouseDown={isActivelyListening || isSummarizing ? undefined : handleMicButtonInteractionStart}
         onTouchStart={(e) => {
           if (!(isActivelyListening || isSummarizing)) {
-            e.preventDefault(); 
+            e.preventDefault();
             handleMicButtonInteractionStart();
           }
         }}
         aria-label="Press and hold in this area to speak your video idea, or type below"
-        role="button" 
-        tabIndex={0} 
+        role="button"
+        tabIndex={0}
       >
         <div
           id="aiSummaryDisplay"
@@ -276,7 +275,7 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
-            if (isSummarizing) { 
+            if (isSummarizing) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
@@ -292,7 +291,7 @@ export default function VideoScriptAIPage() {
           })()}
         </div>
       </CardContent>
-      
+
       <div className="p-4 border-t border-border bg-card shadow-md">
         <form onSubmit={handleTextInputSubmit} className="flex items-center gap-2 sm:gap-4 mb-3">
           <Input
@@ -303,30 +302,30 @@ export default function VideoScriptAIPage() {
             className="flex-grow text-base"
             disabled={isActivelyListening || isSummarizing}
           />
-          <Button 
-            type="submit" 
-            size="icon" 
-            aria-label="Submit text idea" 
+          <Button
+            type="submit"
+            size="icon"
+            aria-label="Submit text idea"
             disabled={isActivelyListening || isSummarizing || !videoIdeaInput.trim()}
           >
             {(isSummarizing && !isActivelyListening && videoIdeaInput.trim()) ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           </Button>
         </form>
-        <div className="flex items-center justify-end"> 
-          <Button 
+        <div className="flex items-center justify-end">
+          <Button
             onClick={() => {
               const ideaExists = currentSummary || fullConversationText.trim() || videoIdeaInput.trim();
               if (ideaExists) {
-                navigateTo('script'); 
+                navigateTo('script');
               } else if (currentView === 'input' && !isGeneratingScript && !isActivelyListening && !isSummarizing){
-                handleGenerateScript(); 
+                handleGenerateScript();
               } else if (!ideaExists) {
                 toast({title: "No Idea Yet", description: "Please provide an idea first by speaking or typing.", variant: "default"});
               }
-            }} 
-            variant="default" 
-            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex" 
-            disabled={isGeneratingScript || isActivelyListening || isSummarizing} 
+            }}
+            variant="default"
+            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex"
+            disabled={isGeneratingScript || isActivelyListening || isSummarizing}
           >
              {isGeneratingScript ? <Loader2 className="h-5 w-5 animate-spin" /> : <>Next <ArrowRight className="h-5 w-5" /></>}
           </Button>
@@ -356,9 +355,9 @@ export default function VideoScriptAIPage() {
         <Button onClick={() => navigateTo('input')} variant="outline" className="gap-2">
           <ArrowLeft className="h-5 w-5" /> Back to Idea
         </Button>
-        <Button 
-            onClick={handleGenerateScript} 
-            disabled={isGeneratingScript || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())} 
+        <Button
+            onClick={handleGenerateScript}
+            disabled={isGeneratingScript || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())}
             className="gap-2 bg-accent hover:bg-accent/90 text-accent-foreground"
         >
           {isGeneratingScript ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
@@ -367,7 +366,7 @@ export default function VideoScriptAIPage() {
       </div>
     </div>
   );
-  
+
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
@@ -382,13 +381,12 @@ export default function VideoScriptAIPage() {
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-background">
-       <AudioWaveVisualizer 
+       <AudioWaveVisualizer
         isActive={isMicButtonPressed}
-        baseBorderThickness={3} 
+        baseBorderThickness={3}
         amplitudeSensitivity={0.1}
-        className="fixed inset-0 z-[1000] pointer-events-none" 
-        colorStart='hsl(220, 90%, 60%)' 
-        colorEnd='hsl(var(--primary))' 
+        className="fixed inset-0 z-[1000] pointer-events-none"
+        borderColor="black" // Explicitly set to black
       />
       <div
         className={cn(
@@ -409,4 +407,3 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
-
