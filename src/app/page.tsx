@@ -22,7 +22,7 @@ declare global {
   }
 }
 
-const MINIMIZED_SHEET_HEIGHT = '80px'; 
+const MINIMIZED_SHEET_HEIGHT = '80px';
 const SWIPE_DOWN_THRESHOLD = 50; // Pixels
 
 export default function VideoScriptAIPage() {
@@ -39,13 +39,12 @@ export default function VideoScriptAIPage() {
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
-  
+
   const handleUserForceStopRef = useRef<() => void>(() => {});
-  const handleSummarizeIdeaRef = useRef<(text: string) => Promise<void>> (async () => {});
+  const handleSummarizeIdeaRef = useRef<(text: string) => Promise<void>>(async () => {});
 
   const scriptSheetContentRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
-
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     setIsSummarizing(true);
@@ -76,23 +75,21 @@ export default function VideoScriptAIPage() {
     handleSummarizeIdeaRef.current = handleSummarizeIdea;
   }, [handleSummarizeIdea]);
 
-
   const handleUserForceStop = useCallback(() => {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
-    
+
     setIsMicButtonPressed(false); // Immediate visual feedback for visualizer
-    setIsActivelyListening(false); // Immediate UI feedback for "Listening..." text
 
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); 
+      recognitionRef.current.stop();
     }
-  }, []); 
+    // Note: isActivelyListening is primarily reset by onend/onerror for accuracy with API state
+  }, []);
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
   }, [handleUserForceStop]);
-
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -106,6 +103,9 @@ export default function VideoScriptAIPage() {
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
           setIsAttemptingToListen(false);
+          // Add window listeners here, after recognition has successfully started
+          window.addEventListener('mouseup', handleUserForceStopRef.current);
+          window.addEventListener('touchend', handleUserForceStopRef.current);
         };
 
         recognitionInstance.onresult = async (event) => {
@@ -113,6 +113,8 @@ export default function VideoScriptAIPage() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
+          // Even if transcript is empty (e.g. quick tap), call summarize
+          // handleSummarizeIdea will decide if an API call is needed
           await handleSummarizeIdeaRef.current(transcript);
         };
 
@@ -127,7 +129,7 @@ export default function VideoScriptAIPage() {
           }
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
-          setIsAttemptingToListen(false); 
+          setIsAttemptingToListen(false);
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
           window.removeEventListener('touchend', handleUserForceStopRef.current);
         };
@@ -135,7 +137,7 @@ export default function VideoScriptAIPage() {
         recognitionInstance.onend = () => {
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
-          setIsAttemptingToListen(false); 
+          setIsAttemptingToListen(false);
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
           window.removeEventListener('touchend', handleUserForceStopRef.current);
         };
@@ -148,9 +150,9 @@ export default function VideoScriptAIPage() {
         });
       }
     }
-    return () => { 
+    return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); 
+        recognitionRef.current.abort(); // Use abort on cleanup
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -159,19 +161,19 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleUserForceStop]);
+  }, [toast, handleUserForceStop]); // handleUserForceStop is stable due to its own useCallback([])
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const currentInput = videoIdeaInput.trim();
     if (currentInput) {
-      setVideoIdeaInput(''); 
-      await handleSummarizeIdea(currentInput); 
+      setVideoIdeaInput('');
+      await handleSummarizeIdea(currentInput);
     } else {
        toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
     }
   };
-  
+
   const handleMicButtonInteractionStart = () => {
     if (!recognitionRef.current) {
       toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
@@ -180,25 +182,25 @@ export default function VideoScriptAIPage() {
     if (isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded' ) {
       return;
     }
-    setIsAttemptingToListen(true); 
+    setIsAttemptingToListen(true);
     try {
-      setIsMicButtonPressed(true); 
-      window.addEventListener('mouseup', handleUserForceStopRef.current);
-      window.addEventListener('touchend', handleUserForceStopRef.current);
+      setIsMicButtonPressed(true);
+      // Window listeners are now added in recognition.onstart
       recognitionRef.current.start();
     } catch (error: any) {
       console.error("Error starting recognition:", error);
       if (error.name === 'InvalidStateError') {
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
           if (recognitionRef.current) {
-              recognitionRef.current.abort(); 
+              recognitionRef.current.abort();
           }
       } else {
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       }
-      setIsMicButtonPressed(false); 
-      setIsActivelyListening(false); 
+      setIsMicButtonPressed(false);
+      setIsActivelyListening(false); // Ensure this is reset if start fails
       setIsAttemptingToListen(false);
+      // Clean up any listeners if start fails before onstart could add them
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     }
@@ -214,24 +216,24 @@ export default function VideoScriptAIPage() {
     let summaryForScript = currentSummary;
 
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
-      const oldIsSummarizing = isSummarizing;
-      setIsSummarizing(true); 
+      const oldIsSummarizing = isSummarizing; // Preserve current summarization state
+      setIsSummarizing(true);
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript); 
+        setCurrentSummary(summaryForScript);
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
         setIsGeneratingScript(false);
-        setIsSummarizing(oldIsSummarizing); 
+        setIsSummarizing(oldIsSummarizing); // Restore previous summarization state
         return;
       } finally {
-        setIsSummarizing(oldIsSummarizing); 
+        setIsSummarizing(oldIsSummarizing); // Restore previous summarization state
       }
     }
-    
-    if (!summaryForScript) { 
+
+    if (!summaryForScript) {
         toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
@@ -249,23 +251,24 @@ export default function VideoScriptAIPage() {
   };
 
   const renderDescribeArea = () => (
-    <div className="flex-grow flex flex-col p-4 sm:p-6 bg-background relative h-full">
+    // This div takes h-full of its parent (which is the dynamically sized "Describe Area Container")
+    <div className="flex-grow flex flex-col p-4 sm:p-6 bg-transparent relative h-full">
       <CardHeader className="p-0 mb-4">
         <CardTitle className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60">Storyy Idea</CardTitle>
       </CardHeader>
-      
+
       <div
         className="flex-grow flex flex-col items-center justify-center text-center cursor-pointer min-h-[200px] sm:min-h-[300px]"
-        onMouseDown={!(isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
+        onMouseDown={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
-          if (!(isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded')) {
-            e.preventDefault(); 
+          if (!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded')) {
+            e.preventDefault();
             handleMicButtonInteractionStart();
           }
         }}
         aria-label="Press and hold in this area to speak your video idea, or type below"
         role="button"
-        tabIndex={!(isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded') ? 0 : -1}
+        tabIndex={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? 0 : -1}
       >
         <div
           id="aiSummaryDisplay"
@@ -280,7 +283,7 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
-            if (isSummarizing && !isActivelyListening) { 
+            if (isSummarizing && !isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
@@ -304,7 +307,7 @@ export default function VideoScriptAIPage() {
               value={videoIdeaInput}
               onChange={(e) => setVideoIdeaInput(e.target.value)}
               placeholder="Type your video idea chunk here..."
-              className="flex-grow text-base border-0 focus-visible:ring-0 focus-visible:ring-offset-0 resize-none min-h-[40px] max-h-[120px] pr-12" 
+              className="flex-grow text-base border-0 focus-visible:ring-0 focus-visible:ring-offset-0 resize-none min-h-[40px] max-h-[120px] pr-12"
               rows={1}
               disabled={isActivelyListening || isSummarizing || isAttemptingToListen}
               onKeyDown={(e) => {
@@ -346,17 +349,15 @@ export default function VideoScriptAIPage() {
 
     const deltaY = e.touches[0].clientY - touchStartRef.current.y;
 
-    // If pulling down (deltaY > 0) and content is at the top
     if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
       setGenerateSheetState('minimized');
-      touchStartRef.current = null; // Reset after action
+      touchStartRef.current = null;
     }
   };
 
   const handleSheetTouchEnd = () => {
     touchStartRef.current = null;
   };
-
 
   const renderGenerateSheet = () => {
     const isSheetContentDisabled = isActivelyListening || isSummarizing || isAttemptingToListen;
@@ -383,7 +384,7 @@ export default function VideoScriptAIPage() {
           </div>
         ) : (
           <div className="flex flex-col h-full">
-            <CardHeader 
+            <CardHeader
               className="p-4 sm:p-6 cursor-pointer flex flex-row items-center justify-center relative"
               onClick={() => setGenerateSheetState('minimized')}
               role="button"
@@ -392,7 +393,7 @@ export default function VideoScriptAIPage() {
               <ChevronDown className="h-6 w-6 text-muted-foreground mr-2 absolute left-4 top-1/2 -translate-y-1/2 sm:left-6" />
               <CardTitle className="text-xl sm:text-2xl font-semibold text-primary text-center flex-grow">Generate</CardTitle>
             </CardHeader>
-            <CardContent 
+            <CardContent
               ref={scriptSheetContentRef}
               className="flex-grow p-4 sm:p-6 overflow-y-auto"
               onTouchStart={handleSheetTouchStart}
@@ -412,10 +413,10 @@ export default function VideoScriptAIPage() {
             <div className="p-4 border-t border-border bg-card">
               <Button
                 onClick={handleGenerateScript}
-                disabled={isGeneratingScript || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())}
+                disabled={isGeneratingScript || isActivelyListening || isSummarizing || isAttemptingToListen || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())}
                 className="w-full gap-2 bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-3"
               >
-                {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />} 
+                {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
                 Generate
               </Button>
             </div>
@@ -424,7 +425,7 @@ export default function VideoScriptAIPage() {
       </div>
     );
   };
-  
+
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
@@ -432,8 +433,8 @@ export default function VideoScriptAIPage() {
   );
 
   return (
-    <main 
-        className="relative w-full h-screen overflow-hidden bg-background flex flex-col"
+    <main
+        className="relative w-full h-screen overflow-hidden bg-background"
         style={{ '--minimized-sheet-height': MINIMIZED_SHEET_HEIGHT } as React.CSSProperties}
     >
       <AudioWaveVisualizer
@@ -441,13 +442,17 @@ export default function VideoScriptAIPage() {
         baseBorderThickness={3}
         amplitudeSensitivity={0.1}
         className="fixed inset-0 z-[1000] pointer-events-none"
-        borderColor="black" 
+        borderColor="black"
       />
-      
-      <div 
+
+      {/* Describe Area Container */}
+      <div
         className={cn(
-            "flex-grow relative",
-            generateSheetState === 'minimized' ? "pb-[var(--minimized-sheet-height)]" : ""
+          "absolute top-0 left-0 right-0 bg-background",
+          "transition-all duration-300 ease-in-out",
+          generateSheetState === 'minimized'
+            ? "bottom-[var(--minimized-sheet-height)] z-0"
+            : "bottom-[90vh] z-10 cursor-pointer"
         )}
         onClick={() => {
           if (generateSheetState === 'expanded') {
@@ -455,21 +460,22 @@ export default function VideoScriptAIPage() {
           }
         }}
       >
+        {/* Overlay for "Describe" text when sheet is expanded */}
         {generateSheetState === 'expanded' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm z-10 cursor-pointer">
+          <div className="w-full h-full flex items-center justify-center bg-background/50 backdrop-blur-sm">
             <h2 className="text-3xl font-semibold text-muted-foreground opacity-80">Describe</h2>
           </div>
         )}
-        <div className={cn(
-            "h-full flex flex-col", 
-            generateSheetState === 'expanded' ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        )}>
-            {renderDescribeArea()}
-        </div>
+
+        {/* Actual Describe Content when sheet is minimized */}
+        {generateSheetState === 'minimized' && (
+            <div className="h-full flex flex-col">
+                 {renderDescribeArea()}
+            </div>
+        )}
       </div>
 
       {renderGenerateSheet()}
     </main>
   );
 }
-
