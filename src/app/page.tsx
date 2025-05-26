@@ -38,7 +38,6 @@ export default function VideoScriptAIPage() {
   const { toast } = useToast();
   const handleUserForceStopRef = useRef<() => void>(() => {});
 
-
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     setIsSummarizing(true);
 
@@ -65,6 +64,13 @@ export default function VideoScriptAIPage() {
     }
   }, [fullConversationText, toast]);
 
+  const handleSummarizeIdeaRef = useRef(handleSummarizeIdea);
+
+  useEffect(() => {
+    handleSummarizeIdeaRef.current = handleSummarizeIdea;
+  }, [handleSummarizeIdea]);
+
+
   const handleUserForceStop = useCallback(() => {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
@@ -75,7 +81,7 @@ export default function VideoScriptAIPage() {
     // Immediate UI update
     setIsActivelyListening(false);
     setIsMicButtonPressed(false);
-  }, []);
+  }, []); 
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -92,7 +98,6 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
-          // Add window listeners only after recognition has successfully started
           window.addEventListener('mouseup', handleUserForceStopRef.current);
           window.addEventListener('touchend', handleUserForceStopRef.current);
         };
@@ -102,9 +107,7 @@ export default function VideoScriptAIPage() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
-          // Even if transcript is empty (e.g. quick tap), call handleSummarizeIdea
-          // It will decide if an API call is needed or summary should be cleared
-          await handleSummarizeIdea(transcript);
+          await handleSummarizeIdeaRef.current(transcript);
         };
 
         recognitionInstance.onerror = (event) => {
@@ -150,7 +153,7 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleSummarizeIdea, handleUserForceStop]);
+  }, [toast, handleUserForceStop]); // Main dependencies are now stable
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -169,26 +172,28 @@ export default function VideoScriptAIPage() {
       return;
     }
     if (isActivelyListening || isSummarizing ) {
-      if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
+      if(isSummarizing && !isActivelyListening) {
+        // Consider removing this toast if it's too noisy during normal summarization updates
+        // toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
+      }
       return;
     }
 
     try {
-      setIsMicButtonPressed(true);
+      setIsMicButtonPressed(true); // Set this first so visualizer activates
       recognitionRef.current.start();
     } catch (error: any) {
       console.error("Error starting recognition:", error);
       toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       setIsMicButtonPressed(false); 
-      setIsActivelyListening(false); // Explicitly reset if start fails
+      setIsActivelyListening(false);
 
       if (error.name === 'InvalidStateError') {
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
-        // Ensure window listeners are removed if they were somehow added before onstart
         window.removeEventListener('mouseup', handleUserForceStopRef.current);
         window.removeEventListener('touchend', handleUserForceStopRef.current);
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); // Try to abort to reset the API's internal state
+            recognitionRef.current.abort(); 
         }
       }
     }
@@ -204,16 +209,17 @@ export default function VideoScriptAIPage() {
     }
 
     setIsGeneratingScript(true);
-    setGeneratedScript('');
+    // setGeneratedScript(''); // No need to clear here, as it's set upon successful generation
 
     let summaryForScript = currentSummary;
 
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
+      // This block ensures a summary exists even if user types and directly hits generate
       setIsSummarizing(true); 
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript);
+        setCurrentSummary(summaryForScript); 
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
@@ -224,12 +230,13 @@ export default function VideoScriptAIPage() {
         setIsSummarizing(false);
       }
     }
-
-    if (!summaryForScript) {
+    
+    if (!summaryForScript) { // Check again after potential summarization
         toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
     }
+
 
     try {
       const result = await generateVideoScript({ contextSummary: summaryForScript });
@@ -257,7 +264,7 @@ export default function VideoScriptAIPage() {
         onMouseDown={isActivelyListening || isSummarizing ? undefined : handleMicButtonInteractionStart}
         onTouchStart={(e) => {
           if (!(isActivelyListening || isSummarizing)) {
-            e.preventDefault(); // Prevent potential double-tap zoom or other default touch behaviors
+            e.preventDefault(); 
             handleMicButtonInteractionStart();
           }
         }}
@@ -278,7 +285,7 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
-            if (isSummarizing) {
+            if (isSummarizing) { // This implies !isActivelyListening
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
@@ -319,11 +326,12 @@ export default function VideoScriptAIPage() {
             onClick={() => {
               const ideaExists = currentSummary || fullConversationText.trim() || videoIdeaInput.trim();
               if (ideaExists) {
-                navigateTo('script');
+                // If an idea exists, always attempt to generate script, which will navigate.
+                handleGenerateScript(); 
               } else if (currentView === 'input' && !isGeneratingScript && !isActivelyListening && !isSummarizing){
                 // If on input view, no active processes, and no idea, try to generate (which will show toast)
                 handleGenerateScript();
-              } else if (!ideaExists) {
+              } else if (!ideaExists) { // This case might be redundant due to above, but good fallback.
                 toast({title: "No Idea Yet", description: "Please provide an idea first by speaking or typing.", variant: "default"});
               }
             }}
