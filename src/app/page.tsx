@@ -38,19 +38,34 @@ export default function VideoScriptAIPage() {
   const { toast } = useToast();
   const handleUserForceStopRef = useRef<() => void>(() => {});
 
+
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    if (!newIdeaChunk.trim()) {
+    if (!newIdeaChunk.trim() && !fullConversationText.trim()) { // if new chunk is empty and no existing conversation
       setIsActivelyListening(false);
       setIsMicButtonPressed(false);
       return;
     }
+    
     setIsSummarizing(true);
-    const updatedConversation = fullConversationText ? `${fullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk;
+    // Append new chunk only if it's not empty. If it's empty but fullConversationText exists, we re-summarize existing.
+    const updatedConversation = newIdeaChunk.trim() 
+      ? (fullConversationText ? `${fullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
+      : fullConversationText;
+
     setFullConversationText(updatedConversation);
+
+    if (!updatedConversation.trim()) { // if after potential append, it's still empty
+        setIsSummarizing(false);
+        setIsActivelyListening(false);
+        setIsMicButtonPressed(false);
+        setCurrentSummary(''); // Clear summary if conversation is empty
+        return;
+    }
 
     try {
       const result = await summarizeVideoIdea({ input: updatedConversation });
       setCurrentSummary(result.summary);
+      // Toast removed as per user request
     } catch (error) {
       console.error('Error summarizing idea:', error);
       toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
@@ -58,17 +73,18 @@ export default function VideoScriptAIPage() {
       setIsSummarizing(false);
     }
   }, [fullConversationText, toast]);
-
+  
   const handleUserForceStop = useCallback(() => {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      recognitionRef.current.stop(); // Use stop() to ensure onresult is called
     }
+    // Immediate UI reset for responsiveness
     setIsActivelyListening(false);
     setIsMicButtonPressed(false);
-  }, []);
+  }, []); // Dependencies are empty as it only uses stable refs and setters
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -79,7 +95,7 @@ export default function VideoScriptAIPage() {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
-        recognitionInstance.continuous = false;
+        recognitionInstance.continuous = false; 
         recognitionInstance.interimResults = false;
         recognitionInstance.lang = 'en-US';
 
@@ -92,11 +108,13 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
+          // `handleSummarizeIdea` will be called with the transcript.
+          // `isActivelyListening` and `isMicButtonPressed` will be reset by `onend` or `handleUserForceStop`.
           if (transcript) {
             await handleSummarizeIdea(transcript);
           }
         };
-
+        
         recognitionInstance.onerror = (event) => {
           if (event.error !== 'no-speech' && event.error !== 'aborted') {
             console.error('Speech recognition error', event.error);
@@ -131,7 +149,7 @@ export default function VideoScriptAIPage() {
     
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); // Use abort on cleanup
+        recognitionRef.current.abort(); 
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -140,13 +158,13 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleSummarizeIdea, handleUserForceStop]);
+  }, [toast, handleSummarizeIdea, handleUserForceStop]); // handleSummarizeIdea is now a dependency
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const currentInput = videoIdeaInput.trim();
     if (currentInput) {
-      setVideoIdeaInput('');
+      setVideoIdeaInput(''); // Clear input after sending
       await handleSummarizeIdea(currentInput);
     } else {
        toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
@@ -158,25 +176,28 @@ export default function VideoScriptAIPage() {
       toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
-    if (isActivelyListening || isSummarizing) {
+    // Prevent starting if already listening or if it's currently summarizing (unless it's an update summarization)
+    if (isActivelyListening || (isSummarizing && !currentSummary) ) { 
       if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
       return;
     }
 
     try {
-      setIsMicButtonPressed(true);
+      setIsMicButtonPressed(true); // Visual feedback starts
       // onstart will set isActivelyListening to true
       recognitionRef.current.start();
     } catch (error: any) {
       setIsMicButtonPressed(false);
-      setIsActivelyListening(false);
+      setIsActivelyListening(false); // Ensure reset on error
 
       if (error.name === 'InvalidStateError') {
+        // This can happen if start() is called while already started or in a weird state.
+        // Attempt to recover by ensuring global listeners are cleaned up.
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         window.removeEventListener('mouseup', handleUserForceStopRef.current);
         window.removeEventListener('touchend', handleUserForceStopRef.current);
         if (recognitionRef.current) {
-            recognitionRef.current.abort();
+            recognitionRef.current.abort(); // Try aborting to fully reset
         }
       } else {
         console.error("Error starting recognition:", error);
@@ -185,50 +206,44 @@ export default function VideoScriptAIPage() {
     }
   };
 
-  const handleGenerateScript = async () => {
-    if (!currentSummary.trim() && !fullConversationText.trim()) {
-       const ideaToUse = videoIdeaInput.trim() || fullConversationText.trim();
-       if (!ideaToUse) {
-        toast({ title: 'Idea Required', description: 'First, provide an idea by speaking or typing.', variant: 'destructive' });
-        return;
-       }
-       // If there's no summary but there is text, summarize first
-       await handleSummarizeIdea(ideaToUse);
-       // handleGenerateScript will be called again effectively by the state update if currentSummary becomes available
-       // This might need a useEffect to trigger generate if summary becomes available and a flag is set.
-       // For now, let's assume user generates summary first or the currentSummary state is up-to-date.
-       // The original PRD implies generation from summary, so we should ensure summary exists.
-       if(!currentSummary.trim() && ideaToUse) { // if summary didn't update in time or instantly
-         setIsGeneratingScript(true); // show loader
-         try {
-            const summaryResult = await summarizeVideoIdea({ input: ideaToUse });
-            if(summaryResult.summary){
-                const scriptResult = await generateVideoScript({ contextSummary: summaryResult.summary });
-                setGeneratedScript(scriptResult.script);
-                setCurrentView('script');
-            } else {
-                toast({ title: 'Summary Failed', description: 'Could not summarize the idea to generate a script.', variant: 'destructive' });
-            }
-         } catch (error) {
-            console.error('Error generating script after intermediate summary:', error);
-            toast({ title: 'Error Generating Script', description: 'Could not generate the script. Please try again.', variant: 'destructive' });
-         } finally {
-            setIsGeneratingScript(false);
-         }
-         return;
-       }
 
-    }
-    if (!currentSummary.trim()) {
-        toast({ title: 'Summary Required', description: 'Please provide an idea for summarization first.', variant: 'destructive' });
-        return;
+  const handleGenerateScript = async () => {
+    const ideaToUseForScript = currentSummary || fullConversationText.trim() || videoIdeaInput.trim();
+
+    if (!ideaToUseForScript) {
+      toast({ title: 'Idea Required', description: 'First, provide an idea by speaking or typing.', variant: 'destructive' });
+      return;
     }
 
     setIsGeneratingScript(true);
-    setGeneratedScript('');
+    setGeneratedScript(''); // Clear previous script
+
+    let summaryForScript = currentSummary;
+
+    // If no currentSummary but other text exists, try to summarize it first
+    if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
+      try {
+        const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
+        summaryForScript = tempSummaryResult.summary;
+        setCurrentSummary(summaryForScript); // Update UI with this summary
+      } catch (error) {
+        console.error('Error summarizing idea before script generation:', error);
+        toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
+        setIsGeneratingScript(false);
+        return;
+      }
+    }
+
+    if (!summaryForScript) { // If still no summary after trying
+        toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
+        setIsGeneratingScript(false);
+        return;
+    }
+    
     try {
-      const result = await generateVideoScript({ contextSummary: currentSummary });
+      const result = await generateVideoScript({ contextSummary: summaryForScript });
       setGeneratedScript(result.script);
+      // Toast removed as per user request
       setCurrentView('script');
     } catch (error) {
       console.error('Error generating script:', error);
@@ -245,47 +260,57 @@ export default function VideoScriptAIPage() {
   const renderInputView = () => (
     <div className="flex flex-col h-full bg-background">
       <CardHeader className="p-4 sm:p-6">
-        <CardTitle className="text-2xl sm:text-3xl font-bold text-primary">Storyy Idea</CardTitle>
-        {/* Description removed */}
+        <CardTitle className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60">Storyy Idea</CardTitle>
       </CardHeader>
       <CardContent
         className="flex-grow p-4 sm:p-6 flex flex-col items-center justify-center text-center cursor-pointer"
-        onMouseDown={!isSummarizing && !isActivelyListening ? handleMicButtonInteractionStart : undefined}
+        onMouseDown={!isActivelyListening && !(isSummarizing && !currentSummary) ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
-          if (!isSummarizing && !isActivelyListening) {
-            e.preventDefault(); // Prevent default touch actions like scrolling or zooming
+          if (!isActivelyListening && !(isSummarizing && !currentSummary)) {
+            e.preventDefault(); 
             handleMicButtonInteractionStart();
           }
         }}
-        aria-label="Press and hold to speak your video idea"
-        role="button" // Semantically a button now
-        tabIndex={0} // Make it focusable
-        // onKeyDown might be added later for space/enter activation if desired, but push-to-talk is primary.
+        aria-label="Press and hold in this area to speak your video idea, or type below"
+        role="button" 
+        tabIndex={0} 
       >
-        {/* Label removed */}
         <div
           id="aiSummaryDisplay"
-          className="w-full min-h-[150px] sm:min-h-[200px] p-3 rounded-md text-lg flex items-center justify-center whitespace-pre-wrap" // Ensure flex properties for centering loader/text
+          className="w-full min-h-[150px] sm:min-h-[200px] p-3 rounded-md flex flex-col items-center justify-center text-center"
           aria-live="polite"
         >
-          {isSummarizing && !currentSummary ? (
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          ) : currentSummary ? (
-            <span className="text-foreground text-2xl font-medium">{currentSummary}</span>
-          ) : isActivelyListening ? (
-            <span className="text-primary text-xl">Listening...</span>
-          ): (
-            <span className="text-muted-foreground text-xl">
-              Press and hold in this area to speak,
-              <br />
-              or type your idea below.
-            </span>
-          )}
-          {isSummarizing && currentSummary && (
-            <span className="text-sm text-muted-foreground block mt-2">
-              Updating summary... <Loader2 className="inline h-4 w-4 animate-spin" />
-            </span>
-          )}
+          {(() => {
+            if (isActivelyListening) {
+              return <span className="text-primary text-xl font-medium">Listening...</span>;
+            }
+            // Initial summary in progress (e.g., after text input submission), and no prior summary exists
+            if (isSummarizing && !currentSummary) { 
+              return <Loader2 className="h-10 w-10 animate-spin text-primary" />;
+            }
+            // If there's a summary, display it.
+            if (currentSummary) {
+              return (
+                <>
+                  <span className="text-foreground text-xl font-medium whitespace-pre-wrap">{currentSummary}</span>
+                  {/* If an update to this summary is in progress, show a small indicator */}
+                  {isSummarizing && ( 
+                    <span className="text-sm text-muted-foreground block mt-2">
+                      Updating summary... <Loader2 className="inline h-4 w-4 animate-spin" />
+                    </span>
+                  )}
+                </>
+              );
+            }
+            // Default state: no active listening, not in initial summarization, no summary yet.
+            return (
+              <span className="text-muted-foreground text-xl font-medium whitespace-pre-wrap">
+                Press and hold in this area to speak,
+                <br />
+                or type your idea below.
+              </span>
+            );
+          })()}
         </div>
       </CardContent>
       
@@ -297,27 +322,36 @@ export default function VideoScriptAIPage() {
             onChange={(e) => setVideoIdeaInput(e.target.value)}
             placeholder="Type your video idea chunk here..."
             className="flex-grow text-base"
-            disabled={isActivelyListening || isSummarizing}
+            disabled={isActivelyListening || (isSummarizing && !currentSummary)}
           />
-          <Button type="submit" size="icon" aria-label="Submit text idea" disabled={isActivelyListening || isSummarizing || !videoIdeaInput.trim()}>
-            {isSummarizing && !isActivelyListening && !videoIdeaInput ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+          <Button 
+            type="submit" 
+            size="icon" 
+            aria-label="Submit text idea" 
+            disabled={isActivelyListening || (isSummarizing && !currentSummary) || !videoIdeaInput.trim()}
+          >
+            {(isSummarizing && !currentSummary && !isActivelyListening && videoIdeaInput.trim()) ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           </Button>
         </form>
         <div className="flex items-center justify-end"> 
-          {/* Hold to Speak button removed */}
           <Button 
             onClick={() => {
-              if (currentSummary || fullConversationText.trim() || videoIdeaInput.trim()) {
-                navigateTo('script');
-              } else {
+              const ideaExists = currentSummary || fullConversationText.trim() || videoIdeaInput.trim();
+              if (ideaExists) {
+                navigateTo('script'); // Navigate if idea exists
+              } else if (currentView === 'input' && !isGeneratingScript && !isActivelyListening && !isSummarizing){
+                // If on input view and no idea, and not busy, then generate script from current state.
+                // This typically means currentSummary should exist. If not, handleGenerateScript will try to make one.
+                handleGenerateScript(); 
+              } else if (!ideaExists) {
                 toast({title: "No Idea Yet", description: "Please provide an idea first by speaking or typing.", variant: "default"});
               }
             }} 
             variant="default" 
-            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex" // Added hidden sm:flex
-            disabled={isGeneratingScript || isActivelyListening || isSummarizing} 
+            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex" 
+            disabled={isGeneratingScript || isActivelyListening || (isSummarizing && !currentSummary)} 
           >
-            Next <ArrowRight className="h-5 w-5" />
+             {isGeneratingScript ? <Loader2 className="h-5 w-5 animate-spin" /> : <>Next <ArrowRight className="h-5 w-5" /></>}
           </Button>
         </div>
       </div>
@@ -357,7 +391,6 @@ export default function VideoScriptAIPage() {
     </div>
   );
   
-  // Extracted Label component for reusability if needed elsewhere, or can be kept inline
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
@@ -374,10 +407,11 @@ export default function VideoScriptAIPage() {
     <main className="relative w-full h-screen overflow-hidden bg-background">
        <AudioWaveVisualizer 
         isActive={isMicButtonPressed}
-        // borderColor is removed; gradient is internal to visualizer
         baseBorderThickness={3} 
         amplitudeSensitivity={0.1}
         className="fixed inset-0 z-[1000] pointer-events-none" 
+        colorStart='hsl(220, 90%, 60%)' // Blue
+        colorEnd='hsl(var(--primary))' // Theme Purple
       />
       <div
         className={cn(
@@ -398,3 +432,4 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
