@@ -65,7 +65,7 @@ function VideoScriptAIPageContent() {
     try {
       const convos = await getConversations(user.uid);
       setConversations(convos);
-      if (!activeConversationId && convos.length > 0 && !fullConversationText && !currentSummary) {
+      if (!activeConversationId && convos.length > 0 && !fullConversationText && !currentSummary && !generatedScript) {
         const mostRecentConvo = convos.sort((a, b) => b.lastOpenedAt.toMillis() - a.lastOpenedAt.toMillis())[0];
         if (mostRecentConvo) {
             setActiveConversationId(mostRecentConvo.id);
@@ -80,7 +80,7 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, fullConversationText, currentSummary, toast, setGeneratedScript, setCurrentSummary, setActiveConversationId, setFullConversationText]);
+  }, [user, activeConversationId, fullConversationText, currentSummary, generatedScript, toast]);
 
 
   useEffect(() => {
@@ -90,37 +90,31 @@ function VideoScriptAIPageContent() {
   }, [user, generateSheetState, fetchConversationsCallback]);
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    let textForAISummary = '';
+    const currentFullText = fullConversationText; // Get current state value
+    let textForAISummary: string;
 
-    // Use functional update to ensure we operate on the latest state
-    setFullConversationText(prevFullConversationText => {
-      const newCombinedText = newIdeaChunk.trim()
-        ? (prevFullConversationText ? `${prevFullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
-        : prevFullConversationText;
-      textForAISummary = newCombinedText; // Capture the text that will be set
-      return newCombinedText;
-    });
-
-    // If the user provided new input, this is no longer the loaded history item.
-    // This logic should run *after* fullConversationText state is scheduled to update,
-    // but textForAISummary already holds the correct value for the AI call.
     if (newIdeaChunk.trim()) {
+      textForAISummary = currentFullText ? `${currentFullText}\n\n${newIdeaChunk}` : newIdeaChunk;
+      setFullConversationText(textForAISummary); // Schedule state update for next render
+      // If the user provided new input, this is no longer the loaded history item.
       setActiveConversationId(null);
       setGeneratedScript('');
+    } else {
+      textForAISummary = currentFullText; // No new chunk, use existing text
+      // If newIdeaChunk is empty, we might not want to call the AI,
+      // but let's ensure textForAISummary reflects the current state for consistency.
+      // If textForAISummary is also empty, we handle it below.
     }
-
-    // If the text for AI is empty (e.g., only whitespace was entered or mic picked up nothing),
-    // clear summary and stop.
+    
     if (!textForAISummary.trim()) {
       setCurrentSummary('');
-      setIsSummarizing(false); // Ensure summarizing state is reset
+      setIsSummarizing(false);
       return;
     }
     
     setIsSummarizing(true);
     try {
-      // textForAISummary now reliably holds the correct, updated text.
-      const result = await summarizeVideoIdea({ input: textForAISummary });
+      const result = await summarizeVideoIdea({ input: textForAISummary }); // Use the locally computed combined text
       setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
@@ -129,7 +123,7 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsSummarizing(false);
     }
-  }, [toast, setFullConversationText, setCurrentSummary, setActiveConversationId, setGeneratedScript, setIsSummarizing]);
+  }, [fullConversationText, toast, setFullConversationText, setCurrentSummary, setActiveConversationId, setGeneratedScript, setIsSummarizing]);
 
 
   useEffect(() => {
@@ -141,8 +135,7 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false); 
-    setIsActivelyListening(false); // Reset listening state immediately
-    setIsAttemptingToListen(false);
+    //setIsActivelyListening(false); // Let onend/onerror handle this for speech processing
     
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
@@ -626,3 +619,4 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
+
