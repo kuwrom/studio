@@ -71,7 +71,7 @@ function VideoScriptAIPageContent() {
             setActiveConversationId(mostRecentConvo.id);
             setCurrentSummary(mostRecentConvo.summary);
             setGeneratedScript(mostRecentConvo.script);
-            setFullConversationText(mostRecentConvo.summary); // Initialize fullConversationText from loaded history
+            setFullConversationText(mostRecentConvo.summary); 
         }
       }
     } catch (error) {
@@ -90,33 +90,37 @@ function VideoScriptAIPageContent() {
   }, [user, generateSheetState, fetchConversationsCallback]);
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    const updatedTextForAISummary = (() => {
-      let capturedText = '';
-      setFullConversationText(prevFullConversationText => {
-        const newText = newIdeaChunk.trim()
-          ? (prevFullConversationText ? `${prevFullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
-          : prevFullConversationText;
-        capturedText = newText;
-        return newText;
-      });
-      return capturedText;
-    })();
+    let textForAISummary = '';
 
+    // Use functional update to ensure we operate on the latest state
+    setFullConversationText(prevFullConversationText => {
+      const newCombinedText = newIdeaChunk.trim()
+        ? (prevFullConversationText ? `${prevFullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
+        : prevFullConversationText;
+      textForAISummary = newCombinedText; // Capture the text that will be set
+      return newCombinedText;
+    });
+
+    // If the user provided new input, this is no longer the loaded history item.
+    // This logic should run *after* fullConversationText state is scheduled to update,
+    // but textForAISummary already holds the correct value for the AI call.
     if (newIdeaChunk.trim()) {
-        setActiveConversationId(null);
-        setGeneratedScript('');
+      setActiveConversationId(null);
+      setGeneratedScript('');
     }
 
-    if (!updatedTextForAISummary.trim()) {
-        setCurrentSummary('');
-        setIsSummarizing(false);
-        return;
+    // If the text for AI is empty (e.g., only whitespace was entered or mic picked up nothing),
+    // clear summary and stop.
+    if (!textForAISummary.trim()) {
+      setCurrentSummary('');
+      setIsSummarizing(false); // Ensure summarizing state is reset
+      return;
     }
     
     setIsSummarizing(true);
-
     try {
-      const result = await summarizeVideoIdea({ input: updatedTextForAISummary });
+      // textForAISummary now reliably holds the correct, updated text.
+      const result = await summarizeVideoIdea({ input: textForAISummary });
       setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
@@ -137,7 +141,7 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false); 
-    setIsActivelyListening(false);
+    setIsActivelyListening(false); // Reset listening state immediately
     setIsAttemptingToListen(false);
     
     if (recognitionRef.current) {
@@ -270,7 +274,7 @@ function VideoScriptAIPageContent() {
     }
 
     let ideaToUseForScript = currentSummary || fullConversationText.trim();
-    if (!ideaToUseForScript && fullConversationText.trim()) { // Fallback if currentSummary is empty but fullConversationText exists
+    if (!ideaToUseForScript && fullConversationText.trim()) { 
       ideaToUseForScript = fullConversationText.trim();
     }
     
@@ -281,9 +285,8 @@ function VideoScriptAIPageContent() {
     setIsGeneratingScript(true);
     let summaryForScript = currentSummary;
 
-    // If currentSummary is empty but fullConversationText is not, try to summarize fullConversationText
     if (!summaryForScript && fullConversationText.trim()) {
-      setIsSummarizing(true); // Indicate summarization process
+      setIsSummarizing(true); 
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() });
         summaryForScript = tempSummaryResult.summary;
@@ -623,4 +626,3 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
-
