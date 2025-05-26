@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input'; // Kept for potential future use, but primary input is Textarea
+// Input component is not used directly for main input anymore, but kept for potential future use or if other inputs are added.
+// import { Input } from '@/components/ui/input'; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Send, Sparkles, ChevronUp, ChevronDown, Mic } from 'lucide-react';
 import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
@@ -185,7 +186,7 @@ export default function VideoScriptAIPage() {
       if (error.name === 'InvalidStateError') {
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
           if (recognitionRef.current) {
-              recognitionRef.current.abort();
+              recognitionRef.current.abort(); // Attempt to stop any previous session
           }
       } else {
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
@@ -207,25 +208,26 @@ export default function VideoScriptAIPage() {
     setIsGeneratingScript(true);
     let summaryForScript = currentSummary;
 
+    // If no currentSummary, but there's text, try to summarize first
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
-      const oldIsSummarizing = isSummarizing;
-      setIsSummarizing(true); 
+      const oldIsSummarizing = isSummarizing; // Preserve current summarizing state
+      setIsSummarizing(true); // Show summarizing state for this operation
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript); 
+        setCurrentSummary(summaryForScript); // Update current summary with this new one
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
         setIsGeneratingScript(false);
-        setIsSummarizing(oldIsSummarizing);
+        setIsSummarizing(oldIsSummarizing); // Restore previous summarizing state
         return;
       } finally {
-        setIsSummarizing(oldIsSummarizing);
+        setIsSummarizing(oldIsSummarizing); // Restore previous summarizing state
       }
     }
     
-    if (!summaryForScript) { 
+    if (!summaryForScript) { // Check again if summaryForScript is available after potential summarization
         toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
@@ -234,6 +236,7 @@ export default function VideoScriptAIPage() {
     try {
       const result = await generateVideoScript({ contextSummary: summaryForScript });
       setGeneratedScript(result.script);
+      // Removed success toast
     } catch (error) {
       console.error('Error generating script:', error);
       toast({ title: 'Error Generating Script', description: 'Could not generate the script. Please try again.', variant: 'destructive' });
@@ -253,7 +256,7 @@ export default function VideoScriptAIPage() {
         onMouseDown={!(isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
           if (!(isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded')) {
-            e.preventDefault(); 
+            e.preventDefault(); // Prevent double-tap zoom on mobile
             handleMicButtonInteractionStart();
           }
         }}
@@ -274,12 +277,13 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
-            if (isSummarizing && !isActivelyListening) {
+            if (isSummarizing && !isActivelyListening) { // Show "Updating..." only if not actively listening
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>{currentSummary}</span>;
             }
+            // Default placeholder text
             return (
               <span className={cn(baseTextClasses, placeholderTextClasses)}>
                 Tap anywhere to speak
@@ -388,6 +392,7 @@ export default function VideoScriptAIPage() {
     );
   };
   
+  // Simple Label component for the generated script area
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
@@ -400,13 +405,15 @@ export default function VideoScriptAIPage() {
         isActive={isMicButtonPressed}
         baseBorderThickness={3}
         amplitudeSensitivity={0.1}
-        className="fixed inset-0 z-[1000] pointer-events-none"
+        className="fixed inset-0 z-[1000] pointer-events-none" // High z-index, pointer-events-none
         borderColor="black" 
       />
       
+      {/* Describe Area Container */}
       <div 
         className="flex-grow relative"
         onClick={() => {
+          // This click handler is for the background area when sheet is expanded
           if (generateSheetState === 'expanded') {
             setGenerateSheetState('minimized');
           }
