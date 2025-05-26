@@ -28,11 +28,11 @@ export default function VideoScriptAIPage() {
   const [videoIdeaInput, setVideoIdeaInput] = useState('');
   const [fullConversationText, setFullConversationText] = useState('');
   const [currentSummary, setCurrentSummary] = useState('');
-  const [generatedScript, setGeneratedScript] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isActivelyListening, setIsActivelyListening] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isMicButtonPressed, setIsMicButtonPressed] = useState(false);
+  const [generatedScript, setGeneratedScript] = useState(''); // Added missing state
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -269,17 +269,21 @@ export default function VideoScriptAIPage() {
           aria-live="polite"
         >
           {(() => {
+            const baseTextClasses = "text-xl font-medium whitespace-pre-wrap";
+            const gradientTextClasses = "bg-gradient-to-r from-[hsl(220,90%,60%)] to-[hsl(var(--primary))] bg-clip-text text-transparent";
+            const placeholderTextClasses = "text-muted-foreground";
+
             if (isActivelyListening) {
-              return <span className="text-primary text-xl font-medium">Listening...</span>;
+              return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
             if (isSummarizing) { 
-              return <Loader2 className="h-10 w-10 animate-spin text-primary" />;
+              return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
-              return <span className="text-foreground text-xl font-medium whitespace-pre-wrap">{currentSummary}</span>;
+              return <span className={cn(baseTextClasses, gradientTextClasses)}>{currentSummary}</span>;
             }
             return (
-              <span className="text-muted-foreground text-xl font-medium whitespace-pre-wrap">
+              <span className={cn(baseTextClasses, placeholderTextClasses)}>
                 Press and hold in this area to speak,
                 <br />
                 or type your idea below.
