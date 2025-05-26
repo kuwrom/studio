@@ -30,7 +30,7 @@ export default function VideoScriptAIPage() {
   const [generatedScript, setGeneratedScript] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isActivelyListening, setIsActivelyListening] = useState(false);
-  const [isGeneratingScript, setIsGeneratingScript] = useState(false); // Added initialization
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -65,8 +65,11 @@ export default function VideoScriptAIPage() {
     
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
+      // Immediately update UI to reflect listening has stopped
+      // on user action, rather than solely relying on onend.
+      setIsActivelyListening(false);
     }
-  }, [recognitionRef]);
+  }, [recognitionRef]); // recognitionRef is stable
 
 
   useEffect(() => {
@@ -87,7 +90,6 @@ export default function VideoScriptAIPage() {
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
           if (transcript) {
-            // Directly call handleSummarizeIdea, which now correctly uses the latest fullConversationText
             await handleSummarizeIdea(transcript);
           }
         };
@@ -107,6 +109,8 @@ export default function VideoScriptAIPage() {
         };
 
         recognitionInstance.onend = () => {
+          // This is the primary place to set isActivelyListening to false.
+          // It ensures the state is correct regardless of how recognition ended (stop, error, natural end).
           setIsActivelyListening(false);
           window.removeEventListener('mouseup', handleUserForceStop);
           window.removeEventListener('touchend', handleUserForceStop);
@@ -133,7 +137,7 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('mouseup', handleUserForceStop);
       window.removeEventListener('touchend', handleUserForceStop);
     };
-  }, [toast, handleSummarizeIdea, handleUserForceStop]); // Added handleSummarizeIdea to dependency array
+  }, [toast, handleSummarizeIdea, handleUserForceStop]);
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -151,19 +155,26 @@ export default function VideoScriptAIPage() {
       toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
-    if (isSummarizing || isActivelyListening) {
+    // Prevent starting if already listening or summarizing.
+    // isActivelyListening check handles the visual "Listening..." state.
+    // isSummarizing check handles the period where AI is processing.
+    if (isActivelyListening || isSummarizing) { 
       if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
       return;
     }
+
     try {
       recognitionRef.current.start();
     } catch (error: any) {
       if (error.name === 'InvalidStateError') {
+        // This can happen if .start() is called when it's already started or in an odd state.
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         setIsActivelyListening(false); 
         window.removeEventListener('mouseup', handleUserForceStop);
         window.removeEventListener('touchend', handleUserForceStop);
-
+        if (recognitionRef.current) {
+            recognitionRef.current.abort(); // Force stop
+        }
       } else {
         console.error("Error starting recognition:", error);
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
@@ -234,6 +245,8 @@ export default function VideoScriptAIPage() {
             onTouchStart={(e) => { e.preventDefault(); handleMicButtonPress(); }}
             variant={isActivelyListening ? "destructive" : "outline"} 
             className="gap-2 select-none"
+            // Button is disabled if AI is summarizing. 
+            // If actively listening, the interaction is managed by onstart/onend and window listeners.
             disabled={isSummarizing} 
             aria-label={isActivelyListening ? "Listening... Release to stop" : "Hold to Speak"}
           >
@@ -250,7 +263,7 @@ export default function VideoScriptAIPage() {
             }} 
             variant="default" 
             className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-            disabled={isGeneratingScript || !currentSummary.trim() || isActivelyListening} 
+            disabled={isGeneratingScript || !currentSummary.trim() || isActivelyListening || isSummarizing} 
           >
             Next <ArrowRight className="h-5 w-5" />
           </Button>
