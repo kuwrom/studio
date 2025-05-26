@@ -44,7 +44,7 @@ const lengthOptions = [
   { value: 3, label: "Long (5-10 mins)" },
   { value: 4, label: "Very Long (10+ mins)" },
 ];
-const defaultVideoLengthValue = 2; // "Medium"
+const defaultVideoLengthValue = 2; // "Medium (3-5 mins)"
 
 function VideoScriptAIPageContent() {
   const { user, signOut } = useAuth();
@@ -69,7 +69,6 @@ function VideoScriptAIPageContent() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // New states for video form and length
   const [activeVideoForm, setActiveVideoForm] = useState<'long-form' | 'short-form'>('long-form');
   const [activeVideoLengthValue, setActiveVideoLengthValue] = useState<number>(defaultVideoLengthValue);
   const [activeVideoLengthLabel, setActiveVideoLengthLabel] = useState<string>(lengthOptions[defaultVideoLengthValue].label);
@@ -112,7 +111,7 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, currentSummary, generatedScript, toast]);
+  }, [user, activeConversationId, toast]); // Removed fullConversationTextRef, currentSummary, generatedScript as they are not needed for fetching
 
 
   useEffect(() => {
@@ -124,10 +123,10 @@ function VideoScriptAIPageContent() {
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     let textThatWillBeSummarized: string;
     const currentTextFromRef = fullConversationTextRef.current;
-
+  
     if (newIdeaChunk.trim()) {
-      setActiveConversationId(null); 
-      setGeneratedScript('');     
+      setActiveConversationId(null);
+      setGeneratedScript('');
       textThatWillBeSummarized = currentTextFromRef
         ? `${currentTextFromRef}\n\n${newIdeaChunk}`
         : newIdeaChunk;
@@ -136,7 +135,7 @@ function VideoScriptAIPageContent() {
     }
     
     setFullConversationText(textThatWillBeSummarized);
-
+  
     if (!textThatWillBeSummarized.trim()) {
       setCurrentSummary('');
       setIsSummarizing(false);
@@ -156,6 +155,7 @@ function VideoScriptAIPageContent() {
     }
   }, [
     toast, 
+    // Removed fullConversationText from dependencies, using fullConversationTextRef.current instead
     setFullConversationText, 
     setCurrentSummary, 
     setActiveConversationId, 
@@ -173,12 +173,12 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false);
-    setIsActivelyListening(false); 
+    // setIsActivelyListening(false); // This will be handled by onend or onerror
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
     }
-  }, [setIsMicButtonPressed, setIsActivelyListening]);
+  }, [setIsMicButtonPressed]); // Removed setIsActivelyListening from dependencies
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -283,7 +283,7 @@ function VideoScriptAIPageContent() {
       console.error("Error starting recognition:", error);
       if (error.name === 'InvalidStateError' && recognitionRef.current) { 
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to abort and reset state.");
-          recognitionRef.current.abort(); 
+          recognitionRef.current.abort(); // Attempt to abort if already started
       }
       toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       
@@ -377,9 +377,9 @@ function VideoScriptAIPageContent() {
     setFullConversationText(conversation.fullConversation || conversation.summary);
     setActiveConversationId(conversation.id);
     setVideoIdeaInput('');
-    // Reset form/length options when loading history, or load them if saved
-    setActiveVideoForm('long-form'); // Reset to default
-    setActiveVideoLengthValue(defaultVideoLengthValue); // Reset to default
+    // The video form and length settings will retain their current values,
+    // allowing the user to apply them to the loaded history item if they choose to regenerate.
+    // They are only reset when "handleNewIdea" is called.
 
     try {
       await updateLastOpened(user.uid, conversation.id);
@@ -723,3 +723,5 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
+
+    
