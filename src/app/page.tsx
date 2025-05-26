@@ -30,20 +30,18 @@ export default function VideoScriptAIPage() {
   const [generatedScript, setGeneratedScript] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+  const [isActivelyListening, setIsActivelyListening] = useState(false); // For push-to-talk state
   
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     if (!newIdeaChunk.trim()) {
-      toast({ title: 'Input Required', description: 'Please provide some input.', variant: 'destructive' });
+      // Do not toast if the chunk is empty, as this might happen on quick mic release
       return;
     }
     setIsSummarizing(true);
     
-    // `fullConversationText` here is from the closure of the useCallback, 
-    // which is updated whenever fullConversationText state changes.
     const updatedConversation = fullConversationText
       ? `${fullConversationText}\n\n${newIdeaChunk}`
       : newIdeaChunk;
@@ -60,41 +58,44 @@ export default function VideoScriptAIPage() {
     } finally {
       setIsSummarizing(false);
     }
-  }, [fullConversationText, toast]); // Dependencies for useCallback
+  }, [fullConversationText, toast]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
-        recognitionInstance.continuous = false;
+        recognitionInstance.continuous = false; // Important for push-to-talk style
         recognitionInstance.interimResults = false;
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
-          setIsListening(true);
-          toast({ title: "Listening...", description: "Speak your video idea." });
+          setIsActivelyListening(true);
+          toast({ title: "Listening...", description: "Speak your video idea. Release to send." });
         };
 
-        // This onresult will now use the latest `handleSummarizeIdea`
-        // because `useEffect` re-runs when `handleSummarizeIdea` changes.
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          await handleSummarizeIdea(transcript);
+          if (transcript) { // Ensure there's a transcript before summarizing
+            await handleSummarizeIdea(transcript);
+          }
         };
 
         recognitionInstance.onerror = (event) => {
           console.error('Speech recognition error', event.error);
-          toast({
-            title: 'Speech Recognition Error',
-            description: event.error === 'no-speech' ? 'No speech detected. Try again.' : `Error: ${event.error}`,
-            variant: 'destructive',
-          });
-          setIsListening(false); 
+          // Avoid toast for 'no-speech' if it's just a quick release without speech
+          if (event.error !== 'no-speech' && event.error !== 'aborted') {
+            toast({
+              title: 'Speech Recognition Error',
+              description: `Error: ${event.error}`,
+              variant: 'destructive',
+            });
+          }
+          setIsActivelyListening(false); 
         };
 
         recognitionInstance.onend = () => {
-          setIsListening(false);
+          setIsActivelyListening(false);
         };
         
         recognitionRef.current = recognitionInstance;
@@ -109,15 +110,14 @@ export default function VideoScriptAIPage() {
     
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        // Clean up event handlers to prevent memory leaks or calls on stale instances
+        recognitionRef.current.abort(); // Use abort for immediate stop
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
       }
     };
-  }, [toast, handleSummarizeIdea]); // Added handleSummarizeIdea as a dependency
+  }, [toast, handleSummarizeIdea]);
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -130,19 +130,29 @@ export default function VideoScriptAIPage() {
     }
   };
 
-  const toggleListening = () => {
+  const handleMicButtonPress = () => {
     if (!recognitionRef.current) {
-        toast({ title: 'Speech API not ready', description: 'Speech recognition is not available.', variant: 'destructive' });
-        return;
+      toast({ title: 'Speech API not ready', description: 'Speech recognition is not available.', variant: 'destructive' });
+      return;
     }
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      if (isSummarizing) {
-        toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
-        return;
-      }
+    if (isSummarizing || isActivelyListening) {
+      if(isSummarizing) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
+      return;
+    }
+    try {
       recognitionRef.current.start();
+    } catch (error: any) {
+       // Catch specific errors like "already-started" which can happen on rapid clicks
+      if (error.name !== 'InvalidStateError') { // InvalidStateError means it's already started or stopped
+        console.error("Error starting recognition:", error);
+        toast({ title: 'Recognition Error', description: 'Could not start listening.', variant: 'destructive' });
+      }
+    }
+  };
+
+  const handleMicButtonRelease = () => {
+    if (recognitionRef.current && isActivelyListening) { 
+      recognitionRef.current.stop();
     }
   };
 
@@ -174,7 +184,7 @@ export default function VideoScriptAIPage() {
     <div className="flex flex-col h-full bg-background">
       <CardHeader className="p-4 sm:p-6">
         <CardTitle className="text-2xl sm:text-3xl font-bold text-primary">Video Idea Input</CardTitle>
-        <CardDescription>Describe your video idea using text or voice. The AI will update its understanding as you add more details.</CardDescription>
+        <CardDescription>Describe your video idea. Use text or hold the mic button to speak. The AI will update its understanding cumulatively.</CardDescription>
       </CardHeader>
       <CardContent className="flex-grow p-4 sm:p-6 overflow-y-auto">
         <Label htmlFor="aiSummary" className="text-lg font-semibold mb-2 block">AI's Cumulative Understanding:</Label>
@@ -195,16 +205,25 @@ export default function VideoScriptAIPage() {
             onChange={(e) => setVideoIdeaInput(e.target.value)}
             placeholder="Type your video idea chunk here..."
             className="flex-grow text-base"
-            disabled={isListening || isSummarizing}
+            disabled={isActivelyListening || isSummarizing}
           />
-          <Button type="submit" size="icon" aria-label="Submit text idea" disabled={isListening || isSummarizing || !videoIdeaInput.trim()}>
-            {isSummarizing && !isListening ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+          <Button type="submit" size="icon" aria-label="Submit text idea" disabled={isActivelyListening || isSummarizing || !videoIdeaInput.trim()}>
+            {isSummarizing && !isActivelyListening ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           </Button>
         </form>
         <div className="flex items-center justify-between">
-           <Button onClick={toggleListening} variant={isListening ? "destructive" : "outline"} className="gap-2" disabled={isSummarizing}>
-            {isListening ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-5 w-5" />}
-            {isListening ? 'Stop Listening' : 'Speak Idea'}
+           <Button 
+            onMouseDown={handleMicButtonPress}
+            onMouseUp={handleMicButtonRelease}
+            onTouchStart={(e) => { e.preventDefault(); handleMicButtonPress(); }} // preventDefault for potential scroll/zoom on touch
+            onTouchEnd={(e) => { e.preventDefault(); handleMicButtonRelease(); }}
+            variant={isActivelyListening ? "destructive" : "outline"} 
+            className="gap-2 select-none" // select-none to prevent text selection on hold
+            disabled={isSummarizing}
+            aria-label={isActivelyListening ? "Listening, release to stop" : "Hold to speak"}
+          >
+            {isActivelyListening ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-5 w-5" />}
+            {isActivelyListening ? 'Listening...' : 'Hold to Speak'}
           </Button>
           <Button 
             onClick={() => {
@@ -216,7 +235,7 @@ export default function VideoScriptAIPage() {
             }} 
             variant="default" 
             className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-            disabled={isGeneratingScript || !currentSummary.trim()} 
+            disabled={isGeneratingScript || !currentSummary.trim() || isActivelyListening} 
           >
             Next <ArrowRight className="h-5 w-5" />
           </Button>
@@ -281,5 +300,3 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
-    
-    
