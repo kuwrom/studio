@@ -19,7 +19,7 @@ const SummarizeVideoIdeaInputSchema = z.object({
 export type SummarizeVideoIdeaInput = z.infer<typeof SummarizeVideoIdeaInputSchema>;
 
 const SummarizeVideoIdeaOutputSchema = z.object({
-  summary: z.string().describe('A short summary of the video idea, either a title or a one-sentence context, incorporating fetched URL content if applicable.'),
+  summary: z.string().optional().describe('A short summary of the video idea, either a title or a one-sentence context, incorporating fetched URL content if applicable.'),
 });
 export type SummarizeVideoIdeaOutput = z.infer<typeof SummarizeVideoIdeaOutputSchema>;
 
@@ -81,7 +81,7 @@ If the user's input contains a URL, use the 'fetchUrlContentTool' to retrieve th
 Then, combine the user's original input and any relevant fetched URL content to provide a short summary of the video idea.
 This summary should be either a title for the video or a one-sentence context describing the video's topic.
 If fetching the URL fails, returns an error, or provides no meaningful content, summarize based on the user's input alone and briefly mention that the URL could not be fully processed.
-Ensure the final summary is concise and directly reflects the core idea.`,
+Ensure the final summary is concise and directly reflects the core idea. If you cannot determine a summary, ensure the summary field in your output is explicitly empty or not present.`,
 });
 
 const summarizeVideoIdeaFlow = ai.defineFlow(
@@ -92,6 +92,15 @@ const summarizeVideoIdeaFlow = ai.defineFlow(
   },
   async (input) => {
     const {output} = await prompt(input);
-    return output!;
+    if (!output?.summary) { 
+      console.warn(
+        'AI did not return a valid summary. Input was:',
+        input.input,
+        'Raw output:',
+        output
+      );
+      return { summary: "Could not get a summary. Try rephrasing or adding more details." };
+    }
+    return output as SummarizeVideoIdeaOutput;
   }
 );

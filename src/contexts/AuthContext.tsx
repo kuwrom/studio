@@ -4,14 +4,27 @@
 import type { User } from 'firebase/auth';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { auth, googleProvider } from '@/lib/firebase';
-import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
-import { Button } from '@/components/ui/button'; // For sign-in button
-import { Chrome } from 'lucide-react'; // Google icon
+import { 
+  signInWithPopup, 
+  signOut as firebaseSignOut, 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  type AuthError
+} from 'firebase/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from '@/hooks/use-toast';
+import { Chrome, Mail } from 'lucide-react';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  signUpWithEmail: (email: string, password: string) => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -20,6 +33,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -29,15 +43,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
+  const handleAuthError = (error: AuthError) => {
+    console.error("Firebase Auth Error:", error);
+    let message = error.message || 'An unknown authentication error occurred.';
+    // Customize messages for common errors
+    if (error.code === 'auth/email-already-in-use') {
+      message = 'This email address is already in use.';
+    } else if (error.code === 'auth/invalid-email') {
+      message = 'Please enter a valid email address.';
+    } else if (error.code === 'auth/weak-password') {
+      message = 'Password should be at least 6 characters.';
+    } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+      message = 'Invalid email or password.';
+    }
+    toast({ title: 'Authentication Failed', description: message, variant: 'destructive' });
+  };
+
   const signInWithGoogle = async () => {
     setLoading(true);
     try {
       await signInWithPopup(auth, googleProvider);
+      // onAuthStateChanged will handle setting user and loading to false
     } catch (error) {
-      console.error("Error signing in with Google:", error);
-      // Handle error (e.g., show a toast)
-    } finally {
-      // setLoading(false); // Auth state change will handle this
+      handleAuthError(error as AuthError);
+      setLoading(false); 
+    }
+  };
+
+  const signUpWithEmail = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will handle setting user and loading to false
+    } catch (error) {
+      handleAuthError(error as AuthError);
+      setLoading(false);
+    }
+  };
+
+  const signInWithEmail = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will handle setting user and loading to false
+    } catch (error) {
+      handleAuthError(error as AuthError);
+      setLoading(false);
     }
   };
 
@@ -46,15 +97,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       await firebaseSignOut(auth);
     } catch (error) {
-      console.error("Error signing out:", error);
+      handleAuthError(error as AuthError);
     } finally {
-      // setLoading(false); // Auth state change will handle this
+      // onAuthStateChanged will set loading to false
     }
   };
 
-  const value = { user, loading, signInWithGoogle, signOut };
+  const value = { user, loading, signInWithGoogle, signUpWithEmail, signInWithEmail, signOut };
 
-  if (loading) {
+  // Do not render children if loading initial auth state, to prevent flicker
+  if (loading && !user) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <p className="text-foreground">Loading authentication...</p>
@@ -78,30 +130,123 @@ export const useAuth = () => {
 };
 
 export const SignInScreen = () => {
-  const { signInWithGoogle, loading } = useAuth();
+  const { signInWithGoogle, signUpWithEmail, signInWithEmail, loading: authLoading } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>, type: 'signin' | 'signup') => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    if (type === 'signin') {
+      await signInWithEmail(email, password);
+    } else {
+      await signUpWithEmail(email, password);
+    }
+    setIsSubmitting(false);
+  };
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-background p-4">
       <Card className="w-full max-w-sm shadow-xl">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Welcome to VideoScriptAI</CardTitle>
-          <CardDescription>Sign in to continue</CardDescription>
+          <CardTitle className="text-2xl">Welcome to Storyy script generator</CardTitle>
+          <CardDescription>Sign in or create an account to continue</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
           <Button 
             onClick={signInWithGoogle} 
-            disabled={loading} 
+            disabled={authLoading || isSubmitting} 
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
           >
             <Chrome className="mr-2 h-5 w-5" /> Sign in with Google
           </Button>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">
+                Or continue with email
+              </span>
+            </div>
+          </div>
+          
+          <Tabs defaultValue="signin" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="signin">Sign In</TabsTrigger>
+              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            </TabsList>
+            <TabsContent value="signin">
+              <form onSubmit={(e) => handleEmailSubmit(e, 'signin')} className="space-y-4 pt-4">
+                <div className="space-y-1">
+                  <Label htmlFor="signin-email">Email</Label>
+                  <Input 
+                    id="signin-email" 
+                    type="email" 
+                    placeholder="m@example.com" 
+                    value={email} 
+                    onChange={(e) => setEmail(e.target.value)} 
+                    required 
+                    disabled={authLoading || isSubmitting}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="signin-password">Password</Label>
+                  <Input 
+                    id="signin-password" 
+                    type="password" 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)} 
+                    required 
+                    disabled={authLoading || isSubmitting}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={authLoading || isSubmitting}>
+                  {(authLoading || isSubmitting) ? 'Processing...' : 'Sign In'}
+                </Button>
+              </form>
+            </TabsContent>
+            <TabsContent value="signup">
+              <form onSubmit={(e) => handleEmailSubmit(e, 'signup')} className="space-y-4 pt-4">
+                <div className="space-y-1">
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input 
+                    id="signup-email" 
+                    type="email" 
+                    placeholder="m@example.com" 
+                    value={email} 
+                    onChange={(e) => setEmail(e.target.value)} 
+                    required 
+                    disabled={authLoading || isSubmitting}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <Input 
+                    id="signup-password" 
+                    type="password" 
+                    placeholder="Must be 6+ characters"
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)} 
+                    required 
+                    disabled={authLoading || isSubmitting}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={authLoading || isSubmitting}>
+                  {(authLoading || isSubmitting) ? 'Processing...' : 'Create Account'}
+                </Button>
+              </form>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>
   );
 };
 
-// Minimal Card components for SignInScreen if not available globally or to avoid circular deps
+// Minimal Card components for SignInScreen
 const Card = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={`rounded-lg border bg-card text-card-foreground shadow-sm ${className}`} {...props} />
 );
@@ -117,4 +262,3 @@ const CardDescription = ({ className, ...props }: React.HTMLAttributes<HTMLParag
 const CardContent = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={`p-6 pt-0 ${className}`} {...props} />
 );
-

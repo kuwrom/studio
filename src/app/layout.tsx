@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'VideoScriptAI',
-  description: 'AI-powered video script generation from your ideas.',
+  title: 'Storyy script generator',
+  description: 'AI-powered script generation for your storyy ideas.',
 };
 
 export default function RootLayout({
