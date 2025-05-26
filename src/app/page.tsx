@@ -41,8 +41,10 @@ export default function VideoScriptAIPage() {
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     if (!newIdeaChunk.trim()) {
-      setIsMicButtonPressed(false); // Ensure button press state is reset if no speech
+      // This case should ideally be handled before calling, 
+      // but as a safeguard:
       setIsActivelyListening(false);
+      setIsMicButtonPressed(false);
       return;
     }
     setIsSummarizing(true);
@@ -70,11 +72,13 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStop);
     
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); 
+      recognitionRef.current.abort(); // Use abort() for more immediate stop
     }
+    // Set states immediately for responsiveness. 
+    // onend will also set these as a final confirmation.
     setIsActivelyListening(false); 
     setIsMicButtonPressed(false);
-  }, []); 
+  }, []); // recognitionRef, setIsActivelyListening, setIsMicButtonPressed are stable
 
 
   useEffect(() => {
@@ -95,11 +99,13 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          // No need to call handleUserForceStop here as onend will be triggered
           if (transcript) {
+            // At this point, user has released button, handleUserForceStop should have been called
+            // and called recognition.abort(). The `onend` event will handle final cleanup.
+            // We still process the result.
             await handleSummarizeIdea(transcript);
           } else {
-             // If no transcript, ensure UI resets (onend should also cover this)
+            // No speech detected, ensure UI resets. onend will also do this.
             setIsActivelyListening(false);
             setIsMicButtonPressed(false);
           }
@@ -107,14 +113,14 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onerror = (event) => {
           console.error('Speech recognition error', event.error);
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          if (event.error !== 'no-speech' && event.error !== 'aborted') { // "aborted" is expected if user stops it
             toast({
               title: 'Speech Recognition Error',
               description: `Error: ${event.error}. Please ensure microphone permissions are granted.`,
               variant: 'destructive',
             });
           }
-          // Ensure UI reset on error
+          // Ensure UI reset on error - onend should also be triggered by abort/errors.
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
           window.removeEventListener('mouseup', handleUserForceStop);
@@ -122,10 +128,10 @@ export default function VideoScriptAIPage() {
         };
 
         recognitionInstance.onend = () => {
-          // This is the primary place to reset listening states after recognition stops naturally or is stopped
+          // This is the definitive place to reset listening states after recognition stops.
           setIsActivelyListening(false);
           setIsMicButtonPressed(false); 
-          window.removeEventListener('mouseup', handleUserForceStop);
+          window.removeEventListener('mouseup', handleUserForceStop); // Ensure listeners are cleaned up
           window.removeEventListener('touchend', handleUserForceStop);
         };
         
@@ -139,7 +145,6 @@ export default function VideoScriptAIPage() {
       }
     }
     
-    // Cleanup function for useEffect
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.abort(); 
@@ -148,7 +153,6 @@ export default function VideoScriptAIPage() {
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
       }
-      // Ensure global listeners are removed on component unmount
       window.removeEventListener('mouseup', handleUserForceStop);
       window.removeEventListener('touchend', handleUserForceStop);
     };
@@ -181,15 +185,12 @@ export default function VideoScriptAIPage() {
     } catch (error: any) {
       setIsMicButtonPressed(false); 
       if (error.name === 'InvalidStateError') {
-        // This can happen if .start() is called when it's already started or in a bad state.
-        // Attempt to reset state gracefully.
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         setIsActivelyListening(false); 
         window.removeEventListener('mouseup', handleUserForceStop);
         window.removeEventListener('touchend', handleUserForceStop);
-        // It's possible recognitionRef.current is null if an abort in cleanup happened
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); // Try to abort to reset its internal state
+            recognitionRef.current.abort();
         }
       } else {
         console.error("Error starting recognition:", error);
@@ -242,8 +243,6 @@ export default function VideoScriptAIPage() {
         </div>
       </CardContent>
       
-      {/* Removed the specific visualizer placeholder div from here */}
-
       <div className="p-4 border-t border-border bg-card shadow-md">
         <form onSubmit={handleTextInputSubmit} className="flex items-center gap-2 sm:gap-4 mb-3">
           <Input
@@ -263,7 +262,7 @@ export default function VideoScriptAIPage() {
             onMouseDown={handleMicButtonInteractionStart}
             onTouchStart={(e) => { e.preventDefault(); handleMicButtonInteractionStart(); }}
             variant={isActivelyListening ? "destructive" : "outline"} 
-            className="gap-2 select-none" // Ensure user cannot select button text during hold
+            className="gap-2 select-none"
             disabled={isSummarizing} 
             aria-label={isActivelyListening ? "Listening... Release to stop" : "Hold to Speak"}
           >
@@ -328,10 +327,10 @@ export default function VideoScriptAIPage() {
     <main className="relative w-full h-screen overflow-hidden bg-background">
        <AudioWaveVisualizer 
         isActive={isMicButtonPressed} 
-        borderColor="hsl(var(--primary))" // Uses primary theme color for the border
+        borderColor="hsl(var(--primary))"
         baseBorderThickness={3} 
-        amplitudeSensitivity={0.1} // You may need to tune this
-        className="fixed inset-0 z-[1000] pointer-events-none" // High z-index, on top, non-interactive
+        amplitudeSensitivity={0.1}
+        className="fixed inset-0 z-[1000] pointer-events-none"
       />
       <div
         className={cn(
@@ -352,3 +351,5 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
+    
