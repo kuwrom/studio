@@ -4,18 +4,20 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
-interface AudioWaveVisualizerProps {
-  isListening: boolean;
+interface ReactiveBorderVisualizerProps {
+  isActive: boolean;
   className?: string;
-  waveColor?: string; 
-  amplitudeFactor?: number;
+  borderColor?: string;
+  baseBorderThickness?: number;
+  amplitudeSensitivity?: number; 
 }
 
-const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
-  isListening,
+const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
+  isActive,
   className,
-  waveColor = 'hsl(200 100% 70%)', // Light blue
-  amplitudeFactor = 0.6,
+  borderColor = 'hsl(276 87% 53.3%)', // Default to a theme-like purple/blue
+  baseBorderThickness = 3, 
+  amplitudeSensitivity = 0.08, 
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -23,6 +25,7 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const dataArrayRef = useRef<Uint8Array | null>(null);
 
   useEffect(() => {
     const initializeAudio = async () => {
@@ -35,16 +38,17 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
         mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256; // Controls detail, 256 is good for simple waves
+        analyserRef.current.fftSize = 256; 
+        analyserRef.current.smoothingTimeConstant = 0.3; // Some smoothing
 
         sourceRef.current = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
         sourceRef.current.connect(analyserRef.current);
-        // No need to connect analyser to destination if only visualizing
-
+        
+        dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
         startDrawing();
+
       } catch (err) {
         console.error('Error initializing audio for visualizer:', err);
-        // Optionally, inform the user via a toast or message
       }
     };
 
@@ -68,7 +72,8 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
         audioContextRef.current.close().catch(console.error);
         audioContextRef.current = null;
       }
-      // Clear canvas
+      dataArrayRef.current = null;
+      
       const canvas = canvasRef.current;
       if (canvas) {
         const context = canvas.getContext('2d');
@@ -78,80 +83,97 @@ const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
       }
     };
 
-    if (isListening) {
+    if (isActive) {
       initializeAudio();
     } else {
       cleanupAudio();
     }
 
     return () => {
-      cleanupAudio(); // Ensure cleanup on unmount
+      cleanupAudio(); 
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isListening]); // Dependency: isListening starts/stops visualization
+  }, [isActive]); 
 
   const startDrawing = () => {
-    if (!analyserRef.current || !canvasRef.current || !audioContextRef.current) {
+    const canvas = canvasRef.current;
+    if (!analyserRef.current || !canvas || !audioContextRef.current) {
       return;
     }
-
-    const analyser = analyserRef.current;
-    const canvas = canvasRef.current;
     const canvasCtx = canvas.getContext('2d');
-
     if (!canvasCtx) return;
 
-    const bufferLength = analyser.frequencyBinCount; // fftSize / 2
-    const dataArray = new Uint8Array(bufferLength);
+    const drawBorder = () => {
+      animationFrameIdRef.current = requestAnimationFrame(drawBorder);
+      if (!analyserRef.current || !dataArrayRef.current || !canvasCtx || !canvasRef.current) return;
 
-    const drawWave = () => {
-      animationFrameIdRef.current = requestAnimationFrame(drawWave);
-      if (!analyserRef.current) return; // Check if analyser still exists
+      analyserRef.current.getByteTimeDomainData(dataArrayRef.current);
 
-      analyserRef.current.getByteTimeDomainData(dataArray);
+      let sumOfSquares = 0;
+      for (let i = 0; i < dataArrayRef.current.length; i++) {
+        const value = (dataArrayRef.current[i] - 128) / 128.0; // Normalize to -1 to 1
+        sumOfSquares += value * value;
+      }
+      const rms = Math.sqrt(sumOfSquares / dataArrayRef.current.length); // Root Mean Square
+      
+      // RMS is 0 to 1. Scale it to affect thickness.
+      const dynamicThicknessAddition = rms * baseBorderThickness * amplitudeSensitivity * 100; // Tuned factor
+      const currentBorderThickness = Math.max(1, baseBorderThickness + dynamicThicknessAddition); // Ensure minimum thickness
 
       canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-      canvasCtx.lineWidth = 3; // Bold line for the wave
-      canvasCtx.strokeStyle = waveColor;
-      canvasCtx.beginPath();
+      canvasCtx.fillStyle = borderColor;
 
-      const sliceWidth = (canvas.width * 1.0) / bufferLength;
-      let x = 0;
-
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0; // dataArray values are 0-255
-        const yOffset = (canvas.height * (1 - amplitudeFactor)) / 2;
-        const y = (v * canvas.height * amplitudeFactor) / 2 + yOffset;
-
-        if (i === 0) {
-          canvasCtx.moveTo(x, y);
-        } else {
-          canvasCtx.lineTo(x, y);
-        }
-        x += sliceWidth;
-      }
-      canvasCtx.stroke();
+      // Top border
+      canvasCtx.fillRect(0, 0, canvas.width, currentBorderThickness);
+      // Bottom border
+      canvasCtx.fillRect(0, canvas.height - currentBorderThickness, canvas.width, currentBorderThickness);
+      // Left border
+      canvasCtx.fillRect(0, 0, currentBorderThickness, canvas.height);
+      // Right border
+      canvasCtx.fillRect(canvas.width - currentBorderThickness, 0, currentBorderThickness, canvas.height);
     };
-    drawWave();
+    drawBorder();
   };
   
-  // Resize canvas with its parent
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !canvas.parentElement) return;
+    if (!canvas || !canvas.parentElement && !document.body) return;
 
-    const parent = canvas.parentElement;
+    const parent = canvas.parentElement || document.body; // Fallback to body if no direct parent
     const resizeObserver = new ResizeObserver(() => {
-      if(canvas && parent) {
-        canvas.width = parent.offsetWidth;
-        canvas.height = parent.offsetHeight;
+      if(canvas) { // Check if canvas still mounted
+        // For fixed full-screen, use window dimensions
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
       }
     });
-    resizeObserver.observe(parent);
-    canvas.width = parent.offsetWidth;
-    canvas.height = parent.offsetHeight;
+
+    if (canvas) { // Only observe if canvas exists
+        // Set initial size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        // Observe window resize for full-screen canvas
+        window.addEventListener('resize', () => {
+            if(canvas) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        });
+        // Note: ResizeObserver on parent is less relevant for fixed full-screen
+        // but kept if className might imply non-fixed parent in other uses.
+        // For this specific full-screen use, window resize is key.
+        // resizeObserver.observe(parent); 
+    }
     
-    return () => resizeObserver.disconnect();
+    return () => {
+        // resizeObserver.disconnect();
+        // Clean up window resize listener if added
+        window.removeEventListener('resize', () => {
+             if(canvas) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        });
+    }
   }, []);
 
 
