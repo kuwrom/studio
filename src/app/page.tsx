@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useRef, FormEvent } from 'react';
@@ -24,6 +25,7 @@ declare global {
 export default function VideoScriptAIPage() {
   const [currentView, setCurrentView] = useState<View>('input');
   const [videoIdeaInput, setVideoIdeaInput] = useState('');
+  const [fullConversationText, setFullConversationText] = useState('');
   const [currentSummary, setCurrentSummary] = useState('');
   const [generatedScript, setGeneratedScript] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -49,7 +51,7 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          setVideoIdeaInput(transcript); // Optionally update input field, or process directly
+          // No need to set videoIdeaInput here, handleSummarizeIdea will process the transcript
           await handleSummarizeIdea(transcript);
         };
 
@@ -60,7 +62,7 @@ export default function VideoScriptAIPage() {
             description: event.error === 'no-speech' ? 'No speech detected. Try again.' : `Error: ${event.error}`,
             variant: 'destructive',
           });
-          setIsListening(false);
+          setIsListening(false); // Ensure listening is reset on error
         };
 
         recognitionInstance.onend = () => {
@@ -82,21 +84,32 @@ export default function VideoScriptAIPage() {
         recognitionRef.current.stop();
       }
     };
-  }, [toast]);
+  }, [toast]); // Removed handleSummarizeIdea from dependencies as its definition is stable
 
-  const handleSummarizeIdea = async (idea: string) => {
-    if (!idea.trim()) {
-      toast({ title: 'Input Required', description: 'Please provide a video idea.', variant: 'destructive' });
+  const handleSummarizeIdea = async (newIdeaChunk: string) => {
+    if (!newIdeaChunk.trim()) {
+      toast({ title: 'Input Required', description: 'Please provide some input.', variant: 'destructive' });
       return;
     }
     setIsSummarizing(true);
+    const updatedConversation = fullConversationText
+      ? `${fullConversationText}\n\n${newIdeaChunk}` // Append new chunk with a separator
+      : newIdeaChunk;
+    
+    // Optimistically update fullConversationText for responsiveness if needed,
+    // but the actual summarization uses updatedConversation.
+    // For simplicity, we'll set it before the async call.
+    setFullConversationText(updatedConversation);
+
     try {
-      const result = await summarizeVideoIdea({ input: idea });
+      const result = await summarizeVideoIdea({ input: updatedConversation });
       setCurrentSummary(result.summary);
-      toast({ title: 'Idea Summarized!', description: 'AI has processed your idea.' });
+      toast({ title: 'Understanding Updated!', description: 'AI has processed your latest input and updated the summary.' });
     } catch (error) {
       console.error('Error summarizing idea:', error);
-      toast({ title: 'Error Summarizing', description: 'Could not process your idea. Please try again.', variant: 'destructive' });
+      toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
+      // Optionally revert fullConversationText if summary fails:
+      // setFullConversationText(fullConversationText); // Reverts to previous state
     } finally {
       setIsSummarizing(false);
     }
@@ -104,8 +117,13 @@ export default function VideoScriptAIPage() {
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    await handleSummarizeIdea(videoIdeaInput);
-    setVideoIdeaInput(''); 
+    const currentInput = videoIdeaInput.trim();
+    if (currentInput) {
+      setVideoIdeaInput(''); // Clear input field immediately
+      await handleSummarizeIdea(currentInput);
+    } else {
+       toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
+    }
   };
 
   const toggleListening = () => {
@@ -115,8 +133,15 @@ export default function VideoScriptAIPage() {
     }
     if (isListening) {
       recognitionRef.current.stop();
+      // setIsListening will be set to false by the 'onend' event
     } else {
+      // Ensure not summarizing before starting new listening session
+      if (isSummarizing) {
+        toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
+        return;
+      }
       recognitionRef.current.start();
+      // setIsListening will be set to true by the 'onstart' event
     }
   };
 
@@ -131,6 +156,7 @@ export default function VideoScriptAIPage() {
       const result = await generateVideoScript({ contextSummary: currentSummary });
       setGeneratedScript(result.script);
       toast({ title: 'Script Generated!', description: result.progress || 'Your video script is ready.' });
+      setCurrentView('script'); // Automatically navigate to script view upon successful generation
     } catch (error) {
       console.error('Error generating script:', error);
       toast({ title: 'Error Generating Script', description: 'Could not generate the script. Please try again.', variant: 'destructive' });
@@ -147,16 +173,17 @@ export default function VideoScriptAIPage() {
     <div className="flex flex-col h-full bg-background">
       <CardHeader className="p-4 sm:p-6">
         <CardTitle className="text-2xl sm:text-3xl font-bold text-primary">Video Idea Input</CardTitle>
-        <CardDescription>Describe your video idea using text or voice. The AI will provide a quick summary.</CardDescription>
+        <CardDescription>Describe your video idea using text or voice. The AI will update its understanding as you add more details.</CardDescription>
       </CardHeader>
       <CardContent className="flex-grow p-4 sm:p-6 overflow-y-auto">
-        <Label htmlFor="aiSummary" className="text-lg font-semibold mb-2 block">AI's Understanding:</Label>
+        <Label htmlFor="aiSummary" className="text-lg font-semibold mb-2 block">AI's Cumulative Understanding:</Label>
         <div
           id="aiSummary"
           className="w-full min-h-[200px] p-3 rounded-md border bg-card text-card-foreground shadow-sm text-lg whitespace-pre-wrap"
           aria-live="polite"
         >
-          {isSummarizing ? <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto my-4" /> : (currentSummary || "Your idea summary will appear here...")}
+          {isSummarizing && !currentSummary ? <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto my-4" /> : (currentSummary || "Your cumulative idea summary will appear here after you provide some input...")}
+          {isSummarizing && currentSummary && <span className="text-sm text-muted-foreground block mt-2">Updating summary...</span>}
         </div>
       </CardContent>
       <div className="p-4 border-t border-border bg-card shadow-md">
@@ -165,7 +192,7 @@ export default function VideoScriptAIPage() {
             type="text"
             value={videoIdeaInput}
             onChange={(e) => setVideoIdeaInput(e.target.value)}
-            placeholder="Type your video idea here..."
+            placeholder="Type your video idea chunk here..."
             className="flex-grow text-base"
             disabled={isListening || isSummarizing}
           />
@@ -174,11 +201,22 @@ export default function VideoScriptAIPage() {
           </Button>
         </form>
         <div className="flex items-center justify-between">
-           <Button onClick={toggleListening} variant={isListening ? "destructive" : "outline"} className="gap-2" disabled={isSummarizing && !isListening}>
+           <Button onClick={toggleListening} variant={isListening ? "destructive" : "outline"} className="gap-2" disabled={isSummarizing}>
             {isListening ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-5 w-5" />}
             {isListening ? 'Stop Listening' : 'Speak Idea'}
           </Button>
-          <Button onClick={() => navigateTo('script')} variant="default" className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button 
+            onClick={() => {
+              if (currentSummary) {
+                navigateTo('script');
+              } else {
+                toast({title: "No Summary Yet", description: "Please provide an idea first, or generate the script directly if you have a summary.", variant: "default"});
+              }
+            }} 
+            variant="default" 
+            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+            disabled={isGeneratingScript || !currentSummary.trim()} // Disable if no summary or generating
+          >
             Next <ArrowRight className="h-5 w-5" />
           </Button>
         </div>
@@ -196,7 +234,7 @@ export default function VideoScriptAIPage() {
         <Label htmlFor="generatedScriptArea" className="text-lg font-semibold mb-2 block">Your Script:</Label>
         <Textarea
           id="generatedScriptArea"
-          value={generatedScript || (currentSummary ? "Click 'Generate Script' to create your video script." : "Please go back and provide an idea first.")}
+          value={generatedScript || (currentSummary ? "Click 'Generate Script' below to create your video script based on the cumulative summary." : "Please go back and provide an idea first.")}
           readOnly
           placeholder="Your generated script will appear here..."
           className="w-full min-h-[300px] text-base bg-card text-card-foreground shadow-sm whitespace-pre-wrap"
@@ -215,14 +253,11 @@ export default function VideoScriptAIPage() {
     </div>
   );
   
-  // Using Label for form elements and div for display for semantic correctness.
-  // Card, CardHeader, CardTitle, CardDescription for structure.
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
     </label>
   );
-
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-background">
@@ -245,3 +280,5 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+    
+    
