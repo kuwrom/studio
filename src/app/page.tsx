@@ -41,7 +41,9 @@ export default function VideoScriptAIPage() {
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     if (!newIdeaChunk.trim()) {
-      setIsActivelyListening(false); // Ensure reset if called with empty
+      // If the chunk is empty, don't proceed with summarization.
+      // Reset listening states if they were somehow true.
+      setIsActivelyListening(false); 
       setIsMicButtonPressed(false);
       return;
     }
@@ -96,22 +98,24 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          if (transcript) {
+          // handleUserForceStop might have already reset isActivelyListening
+          // but it's good to ensure the summary only happens if there's a transcript.
+          if (transcript) { 
             await handleSummarizeIdea(transcript);
-          } else {
-            // No speech detected - onend or onerror('no-speech') will handle UI reset
           }
+          // UI reset is handled by onend or handleUserForceStop
         };
 
         recognitionInstance.onerror = (event) => {
-          console.error('Speech recognition error', event.error);
           if (event.error !== 'no-speech' && event.error !== 'aborted') { 
+            console.error('Speech recognition error', event.error);
             toast({
               title: 'Speech Recognition Error',
               description: `Error: ${event.error}. Please ensure microphone permissions are granted.`,
               variant: 'destructive',
             });
           }
+          // Always reset UI regardless of error type
           setIsActivelyListening(false);
           setIsMicButtonPressed(false); 
           window.removeEventListener('mouseup', handleUserForceStop);
@@ -138,7 +142,6 @@ export default function VideoScriptAIPage() {
     return () => { // Cleanup function
       if (recognitionRef.current) {
         recognitionRef.current.abort(); 
-        // Nullify all handlers to prevent them from being called on an unmounted component
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -173,20 +176,23 @@ export default function VideoScriptAIPage() {
     try {
       setIsMicButtonPressed(true); 
       recognitionRef.current.start();
+      // onstart will set isActivelyListening and add window listeners
     } catch (error: any) {
       setIsMicButtonPressed(false); 
+      // Ensure listening state is also reset if start fails
+      setIsActivelyListening(false); 
+
       if (error.name === 'InvalidStateError') {
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
-        setIsActivelyListening(false); 
+        // Redundant with above, but ensures it if error logic changes
         window.removeEventListener('mouseup', handleUserForceStop);
         window.removeEventListener('touchend', handleUserForceStop);
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); // Attempt to fully stop it
+            recognitionRef.current.abort(); 
         }
       } else {
         console.error("Error starting recognition:", error);
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
-        setIsActivelyListening(false); 
       }
     }
   };
@@ -251,9 +257,9 @@ export default function VideoScriptAIPage() {
         <div className="flex items-center justify-between">
            <Button 
             onMouseDown={handleMicButtonInteractionStart}
-            onTouchStart={(e) => { e.preventDefault(); handleMicButtonInteractionStart(); }}
+            onTouchStart={(e) => { e.preventDefault(); handleMicButtonInteractionStart(); }} // e.preventDefault for touch to avoid scrolling/zooming
             variant={isActivelyListening ? "destructive" : "outline"} 
-            className="gap-2 select-none"
+            className="gap-2 select-none" // select-none to prevent text selection when holding
             disabled={isSummarizing} 
             aria-label={isActivelyListening ? "Listening... Release to stop" : "Hold to Speak"}
           >
@@ -321,7 +327,7 @@ export default function VideoScriptAIPage() {
         borderColor="hsl(var(--primary))"
         baseBorderThickness={3} 
         amplitudeSensitivity={0.1}
-        className="fixed inset-0 z-[1000] pointer-events-none"
+        className="fixed inset-0 z-[1000] pointer-events-none" // z-index high to overlay, pointer-events-none to pass clicks
       />
       <div
         className={cn(
