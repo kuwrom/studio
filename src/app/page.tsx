@@ -59,13 +59,18 @@ function VideoScriptAIPageContent() {
   const scriptSheetContentRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
 
+  const fullConversationTextRef = useRef(fullConversationText);
+  useEffect(() => {
+    fullConversationTextRef.current = fullConversationText;
+  }, [fullConversationText]);
+
   const fetchConversationsCallback = useCallback(async () => {
     if (!user) return;
     setIsLoadingHistory(true);
     try {
       const convos = await getConversations(user.uid);
       setConversations(convos);
-      if (!activeConversationId && convos.length > 0 && !fullConversationText && !currentSummary && !generatedScript) {
+      if (!activeConversationId && convos.length > 0 && !fullConversationTextRef.current && !currentSummary && !generatedScript) {
         const mostRecentConvo = convos.sort((a, b) => b.lastOpenedAt.toMillis() - a.lastOpenedAt.toMillis())[0];
         if (mostRecentConvo) {
             setActiveConversationId(mostRecentConvo.id);
@@ -80,7 +85,7 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, fullConversationText, currentSummary, generatedScript, toast]);
+  }, [user, activeConversationId, currentSummary, generatedScript, toast]);
 
 
   useEffect(() => {
@@ -90,23 +95,25 @@ function VideoScriptAIPageContent() {
   }, [user, generateSheetState, fetchConversationsCallback]);
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    const currentFullText = fullConversationText; // Get current state value
-    let textForAISummary: string;
+    const currentTextFromRef = fullConversationTextRef.current;
+    
+    const textThatWillBeSummarized = (() => {
+      if (newIdeaChunk.trim()) {
+        return currentTextFromRef
+          ? `${currentTextFromRef}\n\n${newIdeaChunk}`
+          : newIdeaChunk;
+      }
+      return currentTextFromRef;
+    })();
 
     if (newIdeaChunk.trim()) {
-      textForAISummary = currentFullText ? `${currentFullText}\n\n${newIdeaChunk}` : newIdeaChunk;
-      setFullConversationText(textForAISummary); // Schedule state update for next render
-      // If the user provided new input, this is no longer the loaded history item.
       setActiveConversationId(null);
       setGeneratedScript('');
-    } else {
-      textForAISummary = currentFullText; // No new chunk, use existing text
-      // If newIdeaChunk is empty, we might not want to call the AI,
-      // but let's ensure textForAISummary reflects the current state for consistency.
-      // If textForAISummary is also empty, we handle it below.
     }
     
-    if (!textForAISummary.trim()) {
+    setFullConversationText(textThatWillBeSummarized);
+
+    if (!textThatWillBeSummarized.trim()) {
       setCurrentSummary('');
       setIsSummarizing(false);
       return;
@@ -114,7 +121,7 @@ function VideoScriptAIPageContent() {
     
     setIsSummarizing(true);
     try {
-      const result = await summarizeVideoIdea({ input: textForAISummary }); // Use the locally computed combined text
+      const result = await summarizeVideoIdea({ input: textThatWillBeSummarized });
       setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
@@ -123,7 +130,14 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsSummarizing(false);
     }
-  }, [fullConversationText, toast, setFullConversationText, setCurrentSummary, setActiveConversationId, setGeneratedScript, setIsSummarizing]);
+  }, [
+    toast, 
+    setActiveConversationId, 
+    setGeneratedScript, 
+    setFullConversationText, 
+    setCurrentSummary, 
+    setIsSummarizing
+  ]);
 
 
   useEffect(() => {
@@ -135,7 +149,8 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false); 
-    //setIsActivelyListening(false); // Let onend/onerror handle this for speech processing
+    setIsActivelyListening(false); // Immediate UI update
+    setIsAttemptingToListen(false);
     
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
@@ -266,9 +281,9 @@ function VideoScriptAIPageContent() {
       return;
     }
 
-    let ideaToUseForScript = currentSummary || fullConversationText.trim();
-    if (!ideaToUseForScript && fullConversationText.trim()) { 
-      ideaToUseForScript = fullConversationText.trim();
+    let ideaToUseForScript = currentSummary || fullConversationTextRef.current.trim();
+    if (!ideaToUseForScript && fullConversationTextRef.current.trim()) { 
+      ideaToUseForScript = fullConversationTextRef.current.trim();
     }
     
     if (!ideaToUseForScript) {
@@ -278,10 +293,10 @@ function VideoScriptAIPageContent() {
     setIsGeneratingScript(true);
     let summaryForScript = currentSummary;
 
-    if (!summaryForScript && fullConversationText.trim()) {
+    if (!summaryForScript && fullConversationTextRef.current.trim()) {
       setIsSummarizing(true); 
       try {
-        const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() });
+        const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationTextRef.current.trim() });
         summaryForScript = tempSummaryResult.summary;
         if (summaryForScript) setCurrentSummary(summaryForScript); 
       } catch (error) {
@@ -410,7 +425,7 @@ function VideoScriptAIPageContent() {
               placeholder="Type your video idea chunk here..."
               className="flex-grow text-base border-0 focus-visible:ring-0 focus-visible:ring-offset-0 resize-none min-h-[40px] max-h-[120px] pr-12"
               rows={1}
-              disabled={isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded'}
+              disabled={isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded'}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -418,14 +433,14 @@ function VideoScriptAIPageContent() {
                 }
               }}
             />
-            {videoIdeaInput.trim() && !(isActivelyListening || isSummarizing || isAttemptingToListen || generateSheetState === 'expanded') && (
+            {videoIdeaInput.trim() && !(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') && (
               <Button
                 type="submit"
                 size="icon"
                 variant="ghost"
                 className="absolute right-3 bottom-3 h-8 w-8 text-primary hover:bg-primary/10"
                 aria-label="Submit text idea"
-                disabled={isActivelyListening || isSummarizing || isAttemptingToListen || !videoIdeaInput.trim()}
+                disabled={isAttemptingToListen || isActivelyListening || isSummarizing || !videoIdeaInput.trim()}
               >
                 <Send className="h-5 w-5" />
               </Button>
@@ -544,7 +559,7 @@ function VideoScriptAIPageContent() {
             <div className="p-4 border-t border-border bg-card">
               <Button
                 onClick={handleGenerateScript}
-                disabled={isGeneratingScript || isSheetContentDisabled || (!currentSummary.trim() && !fullConversationText.trim())}
+                disabled={isGeneratingScript || isSheetContentDisabled || (!currentSummary.trim() && !fullConversationTextRef.current.trim())}
                 className="w-full gap-2 bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-3"
               >
                 {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
