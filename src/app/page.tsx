@@ -33,7 +33,7 @@ export default function VideoScriptAIPage() {
   const [isMicButtonPressed, setIsMicButtonPressed] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [generatedScript, setGeneratedScript] = useState('');
-  const [isAttemptingToListen, setIsAttemptingToListen] = useState(false); // New state
+  const [isAttemptingToListen, setIsAttemptingToListen] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -80,10 +80,9 @@ export default function VideoScriptAIPage() {
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
     }
-    // Immediate UI update
-    setIsActivelyListening(false);
+    // Immediate UI update for button press state / visualizer
     setIsMicButtonPressed(false);
-    // setIsAttemptingToListen(false); // onend or onerror should handle this
+    // isActivelyListening will be set to false by onend or onerror
   }, []); 
 
   useEffect(() => {
@@ -110,7 +109,6 @@ export default function VideoScriptAIPage() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
-          // Call the ref to handleSummarizeIdea to ensure it has the latest fullConversationText
           await handleSummarizeIdeaRef.current(transcript);
         };
 
@@ -125,7 +123,7 @@ export default function VideoScriptAIPage() {
           }
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
-          setIsAttemptingToListen(false); // Ensure lock is released on error
+          setIsAttemptingToListen(false); 
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
           window.removeEventListener('touchend', handleUserForceStopRef.current);
         };
@@ -133,7 +131,7 @@ export default function VideoScriptAIPage() {
         recognitionInstance.onend = () => {
           setIsActivelyListening(false);
           setIsMicButtonPressed(false);
-          setIsAttemptingToListen(false); // Ensure lock is released on end
+          setIsAttemptingToListen(false); 
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
           window.removeEventListener('touchend', handleUserForceStopRef.current);
         };
@@ -160,7 +158,7 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast, handleUserForceStop]);
+  }, [toast, handleUserForceStop]); // handleUserForceStop is stable due to its own useCallback([])
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -182,10 +180,10 @@ export default function VideoScriptAIPage() {
       return;
     }
 
-    setIsAttemptingToListen(true); // Set lock immediately
+    setIsAttemptingToListen(true); 
+    setIsMicButtonPressed(true); // For immediate visualizer feedback
 
     try {
-      setIsMicButtonPressed(true); 
       window.addEventListener('mouseup', handleUserForceStopRef.current);
       window.addEventListener('touchend', handleUserForceStopRef.current);
       recognitionRef.current.start();
@@ -194,7 +192,7 @@ export default function VideoScriptAIPage() {
       toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       
       setIsMicButtonPressed(false); 
-      setIsActivelyListening(false); 
+      // isActivelyListening should remain false as onstart hasn't fired
       setIsAttemptingToListen(false); // Release lock on error
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
@@ -202,7 +200,7 @@ export default function VideoScriptAIPage() {
       if (error.name === 'InvalidStateError') {
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); 
+            recognitionRef.current.abort(); // Try to force a reset of the API
         }
       }
     }
@@ -221,6 +219,8 @@ export default function VideoScriptAIPage() {
     let summaryForScript = currentSummary;
 
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
+      // Temporarily set summarizing state if we need to generate a summary first
+      const oldIsSummarizing = isSummarizing;
       setIsSummarizing(true); 
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
@@ -230,10 +230,10 @@ export default function VideoScriptAIPage() {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
         setIsGeneratingScript(false);
-        setIsSummarizing(false);
+        setIsSummarizing(oldIsSummarizing); // Restore previous summarizing state
         return;
       } finally {
-        setIsSummarizing(false);
+        setIsSummarizing(oldIsSummarizing); // Restore previous summarizing state
       }
     }
     
@@ -268,6 +268,8 @@ export default function VideoScriptAIPage() {
         className="flex-grow p-4 sm:p-6 flex flex-col items-center justify-center text-center cursor-pointer"
         onMouseDown={isActivelyListening || isSummarizing || isAttemptingToListen ? undefined : handleMicButtonInteractionStart}
         onTouchStart={(e) => {
+          // Prevent default to avoid potential double interactions on some devices (like zoom or context menu)
+          // if the area is not already in a listening/processing state.
           if (!(isActivelyListening || isSummarizing || isAttemptingToListen)) {
             e.preventDefault(); 
             handleMicButtonInteractionStart();
@@ -275,7 +277,7 @@ export default function VideoScriptAIPage() {
         }}
         aria-label="Press and hold in this area to speak your video idea, or type below"
         role="button"
-        tabIndex={0}
+        tabIndex={0} // Make it focusable
       >
         <div
           id="aiSummaryDisplay"
@@ -290,7 +292,7 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
-            if (isSummarizing && !isActivelyListening) { 
+            if (isSummarizing && !isActivelyListening) { // Show "Updating..." if summarizing and not actively listening.
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
@@ -330,8 +332,8 @@ export default function VideoScriptAIPage() {
           <Button
             onClick={() => navigateTo('script')}
             variant="default"
-            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex"
-            disabled={isActivelyListening || isSummarizing || isAttemptingToListen}
+            className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex" // Hidden on small screens (mobile)
+            disabled={isActivelyListening || isSummarizing || isAttemptingToListen || isGeneratingScript}
           >
              Next <ArrowRight className="h-5 w-5" />
           </Button>
@@ -373,7 +375,7 @@ export default function VideoScriptAIPage() {
     </div>
   );
 
-  // Helper components
+  // Helper components defined inline as they are simple and specific to this page
   const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
     <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
       {children}
@@ -389,10 +391,10 @@ export default function VideoScriptAIPage() {
   return (
     <main className="relative w-full h-screen overflow-hidden bg-background">
        <AudioWaveVisualizer
-        isActive={isMicButtonPressed}
+        isActive={isMicButtonPressed} // This state now directly controls the visualizer
         baseBorderThickness={3}
         amplitudeSensitivity={0.1}
-        className="fixed inset-0 z-[1000] pointer-events-none"
+        className="fixed inset-0 z-[1000] pointer-events-none" // Ensure it's on top and doesn't block interactions
         borderColor="black" 
       />
       <div
@@ -414,3 +416,4 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
