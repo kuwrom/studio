@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,33 @@ export default function VideoScriptAIPage() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
 
+  const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
+    if (!newIdeaChunk.trim()) {
+      toast({ title: 'Input Required', description: 'Please provide some input.', variant: 'destructive' });
+      return;
+    }
+    setIsSummarizing(true);
+    
+    // `fullConversationText` here is from the closure of the useCallback, 
+    // which is updated whenever fullConversationText state changes.
+    const updatedConversation = fullConversationText
+      ? `${fullConversationText}\n\n${newIdeaChunk}`
+      : newIdeaChunk;
+    
+    setFullConversationText(updatedConversation);
+
+    try {
+      const result = await summarizeVideoIdea({ input: updatedConversation });
+      setCurrentSummary(result.summary);
+      toast({ title: 'Understanding Updated!', description: 'AI has processed your latest input and updated the summary.' });
+    } catch (error) {
+      console.error('Error summarizing idea:', error);
+      toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
+    } finally {
+      setIsSummarizing(false);
+    }
+  }, [fullConversationText, toast]); // Dependencies for useCallback
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -49,9 +76,10 @@ export default function VideoScriptAIPage() {
           toast({ title: "Listening...", description: "Speak your video idea." });
         };
 
+        // This onresult will now use the latest `handleSummarizeIdea`
+        // because `useEffect` re-runs when `handleSummarizeIdea` changes.
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          // No need to set videoIdeaInput here, handleSummarizeIdea will process the transcript
           await handleSummarizeIdea(transcript);
         };
 
@@ -62,7 +90,7 @@ export default function VideoScriptAIPage() {
             description: event.error === 'no-speech' ? 'No speech detected. Try again.' : `Error: ${event.error}`,
             variant: 'destructive',
           });
-          setIsListening(false); // Ensure listening is reset on error
+          setIsListening(false); 
         };
 
         recognitionInstance.onend = () => {
@@ -82,44 +110,20 @@ export default function VideoScriptAIPage() {
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+        // Clean up event handlers to prevent memory leaks or calls on stale instances
+        recognitionRef.current.onstart = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
       }
     };
-  }, [toast]); // Removed handleSummarizeIdea from dependencies as its definition is stable
-
-  const handleSummarizeIdea = async (newIdeaChunk: string) => {
-    if (!newIdeaChunk.trim()) {
-      toast({ title: 'Input Required', description: 'Please provide some input.', variant: 'destructive' });
-      return;
-    }
-    setIsSummarizing(true);
-    const updatedConversation = fullConversationText
-      ? `${fullConversationText}\n\n${newIdeaChunk}` // Append new chunk with a separator
-      : newIdeaChunk;
-    
-    // Optimistically update fullConversationText for responsiveness if needed,
-    // but the actual summarization uses updatedConversation.
-    // For simplicity, we'll set it before the async call.
-    setFullConversationText(updatedConversation);
-
-    try {
-      const result = await summarizeVideoIdea({ input: updatedConversation });
-      setCurrentSummary(result.summary);
-      toast({ title: 'Understanding Updated!', description: 'AI has processed your latest input and updated the summary.' });
-    } catch (error) {
-      console.error('Error summarizing idea:', error);
-      toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
-      // Optionally revert fullConversationText if summary fails:
-      // setFullConversationText(fullConversationText); // Reverts to previous state
-    } finally {
-      setIsSummarizing(false);
-    }
-  };
+  }, [toast, handleSummarizeIdea]); // Added handleSummarizeIdea as a dependency
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const currentInput = videoIdeaInput.trim();
     if (currentInput) {
-      setVideoIdeaInput(''); // Clear input field immediately
+      setVideoIdeaInput(''); 
       await handleSummarizeIdea(currentInput);
     } else {
        toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
@@ -133,15 +137,12 @@ export default function VideoScriptAIPage() {
     }
     if (isListening) {
       recognitionRef.current.stop();
-      // setIsListening will be set to false by the 'onend' event
     } else {
-      // Ensure not summarizing before starting new listening session
       if (isSummarizing) {
         toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
         return;
       }
       recognitionRef.current.start();
-      // setIsListening will be set to true by the 'onstart' event
     }
   };
 
@@ -151,12 +152,12 @@ export default function VideoScriptAIPage() {
       return;
     }
     setIsGeneratingScript(true);
-    setGeneratedScript(''); // Clear previous script
+    setGeneratedScript(''); 
     try {
       const result = await generateVideoScript({ contextSummary: currentSummary });
       setGeneratedScript(result.script);
       toast({ title: 'Script Generated!', description: result.progress || 'Your video script is ready.' });
-      setCurrentView('script'); // Automatically navigate to script view upon successful generation
+      setCurrentView('script'); 
     } catch (error) {
       console.error('Error generating script:', error);
       toast({ title: 'Error Generating Script', description: 'Could not generate the script. Please try again.', variant: 'destructive' });
@@ -215,7 +216,7 @@ export default function VideoScriptAIPage() {
             }} 
             variant="default" 
             className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-            disabled={isGeneratingScript || !currentSummary.trim()} // Disable if no summary or generating
+            disabled={isGeneratingScript || !currentSummary.trim()} 
           >
             Next <ArrowRight className="h-5 w-5" />
           </Button>
