@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, Sparkles, Mic, RotateCcw, ChevronUp } from 'lucide-react'; // Removed Loader2
+import { Send, Sparkles, Mic, RotateCcw } from 'lucide-react';
 import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
 import { generateVideoScript } from '@/ai/flows/generate-video-script';
 import { useToast } from '@/hooks/use-toast';
@@ -16,7 +16,7 @@ import {
   saveOrUpdateConversation, 
   getConversations, 
   updateLastOpened,
-  type Conversation // This type is now { createdAt: number, lastOpenedAt: number }
+  type Conversation
 } from '@/services/conversationService';
 
 type GenerateSheetState = 'minimized' | 'expanded';
@@ -73,13 +73,12 @@ function VideoScriptAIPageContent() {
       const convos = await getConversations(user.uid);
       setConversations(convos);
       if (!activeConversationId && convos.length > 0 && !fullConversationTextRef.current && !currentSummary && !generatedScript) {
-        // Sort by lastOpenedAt (which is now a number)
         const mostRecentConvo = convos.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)[0];
         if (mostRecentConvo) {
             setActiveConversationId(mostRecentConvo.id);
             setCurrentSummary(mostRecentConvo.summary);
             setGeneratedScript(mostRecentConvo.script);
-            setFullConversationText(mostRecentConvo.summary); 
+            setFullConversationText(mostRecentConvo.fullConversation || mostRecentConvo.summary); 
         }
       }
     } catch (error) {
@@ -110,8 +109,8 @@ function VideoScriptAIPageContent() {
     })();
 
     if (newIdeaChunk.trim()) {
-      setActiveConversationId(null); // Detach from loaded history if new input comes
-      setGeneratedScript('');     // Clear generated script if new input comes
+      setActiveConversationId(null); 
+      setGeneratedScript('');     
     }
     
     setFullConversationText(textThatWillBeSummarized);
@@ -153,11 +152,11 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
-    setIsMicButtonPressed(false); // Immediate UI update for visualizer
-    // isActivelyListening will be set false by onend/onerror
+    setIsMicButtonPressed(false);
+    setIsActivelyListening(false); 
 
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); // Tell API to process results
+      recognitionRef.current.stop(); 
     }
   }, []);
 
@@ -232,7 +231,7 @@ function VideoScriptAIPageContent() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleUserForceStop]); // handleUserForceStop is stable
+  }, [toast, handleUserForceStop]); 
 
 
   const handleTextInputSubmit = async (e: FormEvent) => {
@@ -266,7 +265,7 @@ function VideoScriptAIPageContent() {
        if (error.name === 'InvalidStateError') {
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
           if (recognitionRef.current) { 
-              recognitionRef.current.abort(); // Try to abort to reset API state
+              recognitionRef.current.abort(); 
           }
       } else {
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
@@ -325,7 +324,7 @@ function VideoScriptAIPageContent() {
       const newScript = result.script;
       setGeneratedScript(newScript);
       
-      const savedId = await saveOrUpdateConversation(user.uid, summaryForScript, newScript, activeConversationId);
+      const savedId = await saveOrUpdateConversation(user.uid, summaryForScript, newScript, fullConversationTextRef.current, activeConversationId);
       setActiveConversationId(savedId); 
       await fetchConversationsCallback(); 
       
@@ -352,8 +351,8 @@ function VideoScriptAIPageContent() {
     if (!user) return;
     setCurrentSummary(conversation.summary);
     setGeneratedScript(conversation.script);
+    setFullConversationText(conversation.fullConversation || conversation.summary); // Use full conversation
     setActiveConversationId(conversation.id);
-    setFullConversationText(conversation.summary); 
     setVideoIdeaInput('');
 
     try {
@@ -638,3 +637,4 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
+
