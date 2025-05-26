@@ -41,9 +41,7 @@ export default function VideoScriptAIPage() {
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     if (!newIdeaChunk.trim()) {
-      // This case should ideally be handled before calling, 
-      // but as a safeguard:
-      setIsActivelyListening(false);
+      setIsActivelyListening(false); // Ensure reset if called with empty
       setIsMicButtonPressed(false);
       return;
     }
@@ -72,13 +70,12 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStop);
     
     if (recognitionRef.current) {
-      recognitionRef.current.abort(); // Use abort() for more immediate stop
+      recognitionRef.current.abort(); 
     }
-    // Set states immediately for responsiveness. 
-    // onend will also set these as a final confirmation.
+    // Immediately reset UI states for responsiveness
     setIsActivelyListening(false); 
     setIsMicButtonPressed(false);
-  }, []); // recognitionRef, setIsActivelyListening, setIsMicButtonPressed are stable
+  }, []); 
 
 
   useEffect(() => {
@@ -100,38 +97,31 @@ export default function VideoScriptAIPage() {
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
           if (transcript) {
-            // At this point, user has released button, handleUserForceStop should have been called
-            // and called recognition.abort(). The `onend` event will handle final cleanup.
-            // We still process the result.
             await handleSummarizeIdea(transcript);
           } else {
-            // No speech detected, ensure UI resets. onend will also do this.
-            setIsActivelyListening(false);
-            setIsMicButtonPressed(false);
+            // No speech detected - onend or onerror('no-speech') will handle UI reset
           }
         };
 
         recognitionInstance.onerror = (event) => {
           console.error('Speech recognition error', event.error);
-          if (event.error !== 'no-speech' && event.error !== 'aborted') { // "aborted" is expected if user stops it
+          if (event.error !== 'no-speech' && event.error !== 'aborted') { 
             toast({
               title: 'Speech Recognition Error',
               description: `Error: ${event.error}. Please ensure microphone permissions are granted.`,
               variant: 'destructive',
             });
           }
-          // Ensure UI reset on error - onend should also be triggered by abort/errors.
           setIsActivelyListening(false);
-          setIsMicButtonPressed(false);
+          setIsMicButtonPressed(false); 
           window.removeEventListener('mouseup', handleUserForceStop);
           window.removeEventListener('touchend', handleUserForceStop);
         };
 
         recognitionInstance.onend = () => {
-          // This is the definitive place to reset listening states after recognition stops.
           setIsActivelyListening(false);
           setIsMicButtonPressed(false); 
-          window.removeEventListener('mouseup', handleUserForceStop); // Ensure listeners are cleaned up
+          window.removeEventListener('mouseup', handleUserForceStop);
           window.removeEventListener('touchend', handleUserForceStop);
         };
         
@@ -145,9 +135,10 @@ export default function VideoScriptAIPage() {
       }
     }
     
-    return () => {
+    return () => { // Cleanup function
       if (recognitionRef.current) {
         recognitionRef.current.abort(); 
+        // Nullify all handlers to prevent them from being called on an unmounted component
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -190,7 +181,7 @@ export default function VideoScriptAIPage() {
         window.removeEventListener('mouseup', handleUserForceStop);
         window.removeEventListener('touchend', handleUserForceStop);
         if (recognitionRef.current) {
-            recognitionRef.current.abort();
+            recognitionRef.current.abort(); // Attempt to fully stop it
         }
       } else {
         console.error("Error starting recognition:", error);
@@ -351,5 +342,3 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
-
-    
