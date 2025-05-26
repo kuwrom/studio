@@ -41,8 +41,6 @@ export default function VideoScriptAIPage() {
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     if (!newIdeaChunk.trim()) {
-      // If the chunk is empty, don't proceed with summarization.
-      // Reset listening states if they were somehow true.
       setIsActivelyListening(false); 
       setIsMicButtonPressed(false);
       return;
@@ -58,34 +56,31 @@ export default function VideoScriptAIPage() {
     try {
       const result = await summarizeVideoIdea({ input: updatedConversation });
       setCurrentSummary(result.summary);
-      toast({ title: 'Understanding Updated!', description: 'AI has processed your latest input and updated the summary.' });
+      // Removed toast: title: 'Understanding Updated!'
     } catch (error) {
       console.error('Error summarizing idea:', error);
       toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
     } finally {
       setIsSummarizing(false);
     }
-  }, [fullConversationText, toast, setIsActivelyListening, setIsMicButtonPressed, setIsSummarizing]);
+  }, [fullConversationText, toast]);
 
 
   // Ref to hold the latest version of handleUserForceStop callback
   const handleUserForceStopRef = useRef<() => void>(() => {});
 
   const handleUserForceStop = useCallback(() => {
-    // Remove these listeners. The function reference in the ref is the one that was added.
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); // Use stop() to get results, not abort()
+      recognitionRef.current.stop(); 
     }
-    // Immediately reset UI states for responsiveness
     setIsActivelyListening(false); 
     setIsMicButtonPressed(false);
-  }, []); // Empty dependency array is correct as it only uses stable setters and refs
+  }, []); 
 
   useEffect(() => {
-    // Keep the ref updated with the latest version of the callback
     handleUserForceStopRef.current = handleUserForceStop;
   }, [handleUserForceStop]);
 
@@ -101,8 +96,6 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
-          // isMicButtonPressed is already true from onMouseDown/onTouchStart
-          // Add window event listeners using the function from the ref
           window.addEventListener('mouseup', handleUserForceStopRef.current);
           window.addEventListener('touchend', handleUserForceStopRef.current);
         };
@@ -123,7 +116,6 @@ export default function VideoScriptAIPage() {
               variant: 'destructive',
             });
           }
-          // Always reset UI regardless of error type, and clean up listeners
           setIsActivelyListening(false);
           setIsMicButtonPressed(false); 
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
@@ -131,7 +123,6 @@ export default function VideoScriptAIPage() {
         };
 
         recognitionInstance.onend = () => {
-          // This is a crucial cleanup point
           setIsActivelyListening(false);
           setIsMicButtonPressed(false); 
           window.removeEventListener('mouseup', handleUserForceStopRef.current);
@@ -150,17 +141,16 @@ export default function VideoScriptAIPage() {
     
     return () => { 
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); // Use abort on cleanup to immediately stop if component unmounts
+        recognitionRef.current.abort();
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
       }
-      // Ensure window listeners are removed on unmount
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleSummarizeIdea]); // handleUserForceStop is stable due to its own useCallback with empty deps
+  }, [toast, handleSummarizeIdea, handleUserForceStop]); 
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -186,7 +176,6 @@ export default function VideoScriptAIPage() {
     try {
       setIsMicButtonPressed(true); 
       recognitionRef.current.start();
-      // onstart will set isActivelyListening and add window listeners
     } catch (error: any) {
       setIsMicButtonPressed(false); 
       setIsActivelyListening(false); 
@@ -216,7 +205,7 @@ export default function VideoScriptAIPage() {
     try {
       const result = await generateVideoScript({ contextSummary: currentSummary });
       setGeneratedScript(result.script);
-      toast({ title: 'Script Generated!', description: result.progress || 'Your video script is ready.' });
+      // Removed toast: title: 'Script Generated!'
       setCurrentView('script'); 
     } catch (error) {
       console.error('Error generating script:', error);
@@ -356,5 +345,7 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
+    
 
     
