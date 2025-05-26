@@ -4,13 +4,21 @@
 import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, Sparkles, Mic } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Send, Sparkles, Mic, RotateCcw } from 'lucide-react';
 import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
 import { generateVideoScript } from '@/ai/flows/generate-video-script';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import AudioWaveVisualizer from '@/components/ui/AudioWaveVisualizer';
+import { useAuth, SignInScreen } from '@/contexts/AuthContext';
+import { 
+  saveOrUpdateConversation, 
+  getConversations, 
+  updateLastOpened,
+  type Conversation 
+} from '@/services/conversationService';
+import type { Timestamp } from 'firebase/firestore';
 
 type GenerateSheetState = 'minimized' | 'expanded';
 
@@ -23,10 +31,11 @@ declare global {
 }
 
 const MINIMIZED_SHEET_HEIGHT = '80px';
-const EXPANDED_SHEET_TARGET_VH = '90vh';
-const SWIPE_DOWN_THRESHOLD = 50; // Pixels
+const EXPANDED_SHEET_TARGET_VH = '90vh'; 
+const SWIPE_DOWN_THRESHOLD = 50;
 
-export default function VideoScriptAIPage() {
+function VideoScriptAIPageContent() {
+  const { user } = useAuth();
   const [generateSheetState, setGenerateSheetState] = useState<GenerateSheetState>('minimized');
   const [videoIdeaInput, setVideoIdeaInput] = useState('');
   const [fullConversationText, setFullConversationText] = useState('');
@@ -38,6 +47,9 @@ export default function VideoScriptAIPage() {
   const [generatedScript, setGeneratedScript] = useState('');
   const [isAttemptingToListen, setIsAttemptingToListen] = useState(false);
 
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -48,13 +60,45 @@ export default function VideoScriptAIPage() {
   const scriptSheetContentRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
 
+  const fetchConversationsCallback = useCallback(async () => {
+    if (!user) return;
+    setIsLoadingHistory(true);
+    try {
+      const convos = await getConversations(user.uid);
+      setConversations(convos);
+      if (!activeConversationId && convos.length > 0 && !fullConversationText && !currentSummary) {
+        const mostRecentConvo = convos[0];
+        setActiveConversationId(mostRecentConvo.id);
+        setCurrentSummary(mostRecentConvo.summary);
+        setGeneratedScript(mostRecentConvo.script);
+      }
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+      toast({ title: "Error", description: "Could not load conversation history.", variant: "destructive" });
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [user, activeConversationId, fullConversationText, currentSummary, toast]);
+
+  useEffect(() => {
+    if (user && generateSheetState === 'expanded') {
+      fetchConversationsCallback();
+    }
+  }, [user, generateSheetState, fetchConversationsCallback]);
+
+
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     setIsSummarizing(true);
     const updatedConversation = newIdeaChunk.trim()
       ? (fullConversationText ? `${fullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
       : fullConversationText;
-
+    
     setFullConversationText(updatedConversation);
+
+    if(newIdeaChunk.trim()) { 
+        setActiveConversationId(null); 
+        setGeneratedScript(''); 
+    }
 
     if (!updatedConversation.trim()) {
       setCurrentSummary('');
@@ -73,6 +117,7 @@ export default function VideoScriptAIPage() {
     }
   }, [fullConversationText, toast]);
 
+
   useEffect(() => {
     handleSummarizeIdeaRef.current = handleSummarizeIdea;
   }, [handleSummarizeIdea]);
@@ -80,18 +125,20 @@ export default function VideoScriptAIPage() {
   const handleUserForceStop = useCallback(() => {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
-
-    setIsMicButtonPressed(false); // Immediate visual feedback for visualizer
-    setIsActivelyListening(false); // Immediate visual feedback for "Listening..." text
-
+    
+    setIsMicButtonPressed(false); 
+    setIsActivelyListening(false);
+    
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); // Use stop to allow onresult to fire
+      recognitionRef.current.stop();
     }
   }, []);
+
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
   }, [handleUserForceStop]);
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -99,7 +146,7 @@ export default function VideoScriptAIPage() {
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
         recognitionInstance.continuous = false;
-        recognitionInstance.interimResults = false;
+        recognitionInstance.interimResults = false; 
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
@@ -117,7 +164,7 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onerror = (event) => {
           if (event.error !== 'no-speech' && event.error !== 'aborted') {
-            console.error('Speech recognition error', event.error);
+             console.error('Speech recognition error', event.error);
             toast({
               title: 'Speech Recognition Error',
               description: `Error: ${event.error}. Please ensure microphone permissions are granted.`,
@@ -183,7 +230,7 @@ export default function VideoScriptAIPage() {
 
     setIsAttemptingToListen(true);
     try {
-      setIsMicButtonPressed(true);
+      setIsMicButtonPressed(true); 
       window.addEventListener('mouseup', handleUserForceStopRef.current);
       window.addEventListener('touchend', handleUserForceStopRef.current);
       recognitionRef.current.start();
@@ -198,16 +245,20 @@ export default function VideoScriptAIPage() {
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       }
       setIsMicButtonPressed(false);
-      setIsActivelyListening(false);
+      setIsActivelyListening(false); 
       setIsAttemptingToListen(false);
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     }
   };
 
-
   const handleGenerateScript = async () => {
-    const ideaToUseForScript = currentSummary || fullConversationText.trim() || videoIdeaInput.trim();
+    if (!user) {
+      toast({ title: 'Authentication Required', description: 'Please sign in to generate and save scripts.', variant: 'destructive' });
+      return;
+    }
+
+    const ideaToUseForScript = currentSummary || fullConversationText.trim();
     if (!ideaToUseForScript) {
       toast({ title: 'Idea Required', description: 'First, provide an idea by speaking or typing.', variant: 'destructive' });
       return;
@@ -215,25 +266,24 @@ export default function VideoScriptAIPage() {
     setIsGeneratingScript(true);
     let summaryForScript = currentSummary;
 
-    if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
-      const oldIsSummarizing = isSummarizing;
+    if (!summaryForScript && fullConversationText.trim()) {
       setIsSummarizing(true);
       try {
-        const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
+        const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript);
+        setCurrentSummary(summaryForScript); 
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
-        toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
+        toast({ title: 'Summarization Failed', description: 'Could not summarize the idea. Please try again.', variant: 'destructive' });
         setIsGeneratingScript(false);
-        setIsSummarizing(oldIsSummarizing);
+        setIsSummarizing(false);
         return;
       } finally {
-        setIsSummarizing(oldIsSummarizing);
+        setIsSummarizing(false);
       }
     }
-
-    if (!summaryForScript) {
+    
+    if (!summaryForScript) { 
         toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
@@ -241,14 +291,54 @@ export default function VideoScriptAIPage() {
 
     try {
       const result = await generateVideoScript({ contextSummary: summaryForScript });
-      setGeneratedScript(result.script);
+      const newScript = result.script;
+      setGeneratedScript(newScript);
+      
+      const savedId = await saveOrUpdateConversation(user.uid, summaryForScript, newScript, activeConversationId);
+      setActiveConversationId(savedId); 
+      await fetchConversationsCallback(); 
+      
     } catch (error) {
-      console.error('Error generating script:', error);
-      toast({ title: 'Error Generating Script', description: 'Could not generate the script. Please try again.', variant: 'destructive' });
+      console.error('Error generating or saving script:', error);
+      toast({ title: 'Error Generating Script', description: 'Could not generate or save the script. Please try again.', variant: 'destructive' });
     } finally {
       setIsGeneratingScript(false);
     }
   };
+  
+  const handleNewIdea = () => {
+    setFullConversationText('');
+    setCurrentSummary('');
+    setGeneratedScript('');
+    setActiveConversationId(null);
+    setVideoIdeaInput('');
+    setGenerateSheetState('minimized'); 
+    toast({ title: "New Idea Started", description: "Previous context has been cleared."});
+  };
+
+  const handleHistoryItemClick = async (conversation: Conversation) => {
+    if (!user) return;
+    setCurrentSummary(conversation.summary);
+    setGeneratedScript(conversation.script);
+    setActiveConversationId(conversation.id);
+    setFullConversationText(''); 
+    setVideoIdeaInput('');
+
+    try {
+      await updateLastOpened(user.uid, conversation.id);
+      await fetchConversationsCallback(); 
+    } catch (error) {
+      console.error("Error updating last opened:", error);
+      toast({title: "Error", description: "Could not update conversation timestamp.", variant: "destructive"});
+    }
+  };
+  
+  const getScriptPreview = (script: string, lineLimit = 2) => {
+    if (!script) return "";
+    const lines = script.split('\n');
+    return lines.slice(0, lineLimit).join('\n') + (lines.length > lineLimit ? '...' : '');
+  };
+
 
   const renderDescribeArea = () => (
     <div className="flex-grow flex flex-col p-4 sm:p-6 bg-transparent relative h-full">
@@ -384,39 +474,67 @@ export default function VideoScriptAIPage() {
         ) : (
           <div className="flex flex-col h-full">
             <CardHeader
-              className="p-4 sm:p-6 cursor-pointer flex flex-row items-center justify-center relative"
+              className="p-4 sm:p-6 cursor-pointer flex flex-row items-center justify-between relative"
               onClick={() => setGenerateSheetState('minimized')}
               role="button"
               aria-label="Minimize script view"
             >
               <CardTitle className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60 text-center flex-grow">Generate</CardTitle>
+              <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleNewIdea();}} aria-label="Start new idea" className="text-muted-foreground hover:text-foreground">
+                <RotateCcw className="h-5 w-5" />
+              </Button>
             </CardHeader>
             <CardContent
               ref={scriptSheetContentRef}
-              className="flex-grow p-4 sm:p-6 overflow-y-auto"
+              className="flex-grow p-4 sm:p-6 overflow-y-auto space-y-4"
               onTouchStart={handleSheetTouchStart}
               onTouchMove={handleSheetTouchMove}
               onTouchEnd={handleSheetTouchEnd}
             >
-              <Label htmlFor="generatedScriptArea" className="text-base font-medium mb-2 block text-muted-foreground">Your Script:</Label>
-              <div
-                id="generatedScriptArea"
-                className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap p-3 rounded-md border border-input min-h-[80px]"
-                aria-live="polite"
-              >
-                {generatedScript ? (
-                  generatedScript
-                ) : (
-                  <span className="text-muted-foreground">
-                    {currentSummary ? "Click 'Generate' below to create your video script." : "Please describe your idea first on the screen above."}
-                  </span>
-                )}
-              </div>
+              {isLoadingHistory && <p className="text-muted-foreground text-center">Loading history...</p>}
+              {!isLoadingHistory && conversations.length === 0 && !activeConversationId && !currentSummary && (
+                 <p className="text-muted-foreground text-center">
+                    No past scripts found. Describe your idea first or generate a new script.
+                 </p>
+              )}
+              {(!activeConversationId && (currentSummary || generatedScript)) && (
+                <Card className="mb-4 border-primary ring-2 ring-primary shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="text-lg">{currentSummary || "New Idea In Progress"}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                     <div className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap p-3 rounded-md border border-input min-h-[80px]">
+                        {generatedScript || <span className="text-muted-foreground">Script will appear here after generation.</span>}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {conversations.map((convo) => (
+                <Card 
+                  key={convo.id} 
+                  onClick={() => handleHistoryItemClick(convo)} 
+                  className={cn(
+                    "cursor-pointer hover:shadow-md transition-shadow",
+                    activeConversationId === convo.id && "border-primary ring-2 ring-primary shadow-lg"
+                  )}
+                >
+                  <CardHeader>
+                    <CardTitle className="text-lg">{convo.summary}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-sm text-muted-foreground whitespace-pre-wrap">
+                      {activeConversationId === convo.id ? convo.script : getScriptPreview(convo.script)}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              
             </CardContent>
             <div className="p-4 border-t border-border bg-card">
               <Button
                 onClick={handleGenerateScript}
-                disabled={isGeneratingScript || isSheetContentDisabled || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())}
+                disabled={isGeneratingScript || isSheetContentDisabled || (!currentSummary.trim() && !fullConversationText.trim())}
                 className="w-full gap-2 bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-3"
               >
                 {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
@@ -428,13 +546,6 @@ export default function VideoScriptAIPage() {
       </div>
     );
   };
-
-  const Label = ({ htmlFor, className, children }: { htmlFor?: string; className?: string; children: React.ReactNode }) => (
-    <label htmlFor={htmlFor} className={cn("block text-sm font-medium text-foreground", className)}>
-      {children}
-    </label>
-  );
-
 
   return (
     <main
@@ -480,3 +591,22 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
+export default function Page() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <p className="text-foreground">Loading...</p>
+      </div>
+    );
+  }
+  
+  if (!user) {
+    return <SignInScreen />;
+  }
+
+  return <VideoScriptAIPageContent />;
+}
+
