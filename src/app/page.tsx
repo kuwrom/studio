@@ -11,6 +11,8 @@ import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
 import { generateVideoScript } from '@/ai/flows/generate-video-script';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import AudioWaveVisualizer from '@/components/ui/AudioWaveVisualizer';
+
 
 type View = 'input' | 'script';
 
@@ -19,6 +21,7 @@ declare global {
   interface Window {
     SpeechRecognition: typeof SpeechRecognition;
     webkitSpeechRecognition: typeof SpeechRecognition;
+    webkitAudioContext: typeof AudioContext;
   }
 }
 
@@ -31,6 +34,7 @@ export default function VideoScriptAIPage() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isActivelyListening, setIsActivelyListening] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [isMicButtonPressed, setIsMicButtonPressed] = useState(false);
   
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -65,11 +69,13 @@ export default function VideoScriptAIPage() {
     
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
-      // Immediately update UI to reflect listening has stopped
-      // on user action, rather than solely relying on onend.
-      setIsActivelyListening(false);
     }
-  }, [recognitionRef]); // recognitionRef is stable
+    // Immediately update UI to reflect listening has stopped
+    // on user action, rather than solely relying on onend.
+    // This state handles the button's appearance and the visualizer's border.
+    setIsActivelyListening(false); 
+    setIsMicButtonPressed(false); // Ensure border is removed
+  }, []); 
 
 
   useEffect(() => {
@@ -83,6 +89,7 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
+          //setIsMicButtonPressed(true); // Already set by onMouseDown/onTouchStart
           window.addEventListener('mouseup', handleUserForceStop);
           window.addEventListener('touchend', handleUserForceStop);
         };
@@ -104,14 +111,14 @@ export default function VideoScriptAIPage() {
             });
           }
           setIsActivelyListening(false);
+          setIsMicButtonPressed(false);
           window.removeEventListener('mouseup', handleUserForceStop);
           window.removeEventListener('touchend', handleUserForceStop);
         };
 
         recognitionInstance.onend = () => {
-          // This is the primary place to set isActivelyListening to false.
-          // It ensures the state is correct regardless of how recognition ended (stop, error, natural end).
           setIsActivelyListening(false);
+          setIsMicButtonPressed(false);
           window.removeEventListener('mouseup', handleUserForceStop);
           window.removeEventListener('touchend', handleUserForceStop);
         };
@@ -150,30 +157,28 @@ export default function VideoScriptAIPage() {
     }
   };
 
-  const handleMicButtonPress = () => {
+  const handleMicButtonInteractionStart = () => {
     if (!recognitionRef.current) {
       toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
-    // Prevent starting if already listening or summarizing.
-    // isActivelyListening check handles the visual "Listening..." state.
-    // isSummarizing check handles the period where AI is processing.
     if (isActivelyListening || isSummarizing) { 
       if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
       return;
     }
 
     try {
+      setIsMicButtonPressed(true); // Show border immediately
       recognitionRef.current.start();
     } catch (error: any) {
+      setIsMicButtonPressed(false); // Hide border if start fails
       if (error.name === 'InvalidStateError') {
-        // This can happen if .start() is called when it's already started or in an odd state.
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         setIsActivelyListening(false); 
         window.removeEventListener('mouseup', handleUserForceStop);
         window.removeEventListener('touchend', handleUserForceStop);
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); // Force stop
+            recognitionRef.current.abort(); 
         }
       } else {
         console.error("Error starting recognition:", error);
@@ -218,13 +223,22 @@ export default function VideoScriptAIPage() {
         <Label htmlFor="aiSummary" className="text-lg font-semibold mb-2 block">AI's Cumulative Understanding:</Label>
         <div
           id="aiSummary"
-          className="w-full min-h-[200px] p-3 rounded-md border bg-card text-card-foreground shadow-sm text-lg whitespace-pre-wrap"
+          className="w-full min-h-[150px] sm:min-h-[200px] p-3 rounded-md border bg-card text-card-foreground shadow-sm text-lg whitespace-pre-wrap"
           aria-live="polite"
         >
           {isSummarizing && !currentSummary ? <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto my-4" /> : (currentSummary || "Your cumulative idea summary will appear here after you provide some input...")}
           {isSummarizing && currentSummary && <span className="text-sm text-muted-foreground block mt-2">Updating summary...</span>}
         </div>
       </CardContent>
+      
+      <div className={cn(
+          "h-20 w-full my-2 mx-auto px-4 sm:px-6 transition-all duration-150 ease-in-out",
+          isMicButtonPressed ? "border-4 border-primary rounded-lg p-1" : "p-1" // No border when not pressed to avoid layout shift
+        )}>
+          {/* Render visualizer only when actively listening to avoid unnecessary audio context creation */}
+          {(isActivelyListening || isMicButtonPressed) && <AudioWaveVisualizer isListening={isActivelyListening} waveColor="hsl(200 80% 65%)" amplitudeFactor={0.7} />}
+      </div>
+
       <div className="p-4 border-t border-border bg-card shadow-md">
         <form onSubmit={handleTextInputSubmit} className="flex items-center gap-2 sm:gap-4 mb-3">
           <Input
@@ -241,12 +255,11 @@ export default function VideoScriptAIPage() {
         </form>
         <div className="flex items-center justify-between">
            <Button 
-            onMouseDown={handleMicButtonPress}
-            onTouchStart={(e) => { e.preventDefault(); handleMicButtonPress(); }}
+            onMouseDown={handleMicButtonInteractionStart}
+            onTouchStart={(e) => { e.preventDefault(); handleMicButtonInteractionStart(); }}
+            // onMouseUp and onTouchEnd are handled by global listeners (handleUserForceStop)
             variant={isActivelyListening ? "destructive" : "outline"} 
             className="gap-2 select-none"
-            // Button is disabled if AI is summarizing. 
-            // If actively listening, the interaction is managed by onstart/onend and window listeners.
             disabled={isSummarizing} 
             aria-label={isActivelyListening ? "Listening... Release to stop" : "Hold to Speak"}
           >
@@ -328,3 +341,4 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
