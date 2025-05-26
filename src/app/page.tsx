@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Send, Sparkles, Mic, RotateCcw } from 'lucide-react';
 import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
 import { generateVideoScript } from '@/ai/flows/generate-video-script';
@@ -18,7 +18,6 @@ import {
   updateLastOpened,
   type Conversation 
 } from '@/services/conversationService';
-import type { Timestamp } from 'firebase/firestore';
 
 type GenerateSheetState = 'minimized' | 'expanded';
 
@@ -67,10 +66,12 @@ function VideoScriptAIPageContent() {
       const convos = await getConversations(user.uid);
       setConversations(convos);
       if (!activeConversationId && convos.length > 0 && !fullConversationText && !currentSummary) {
-        const mostRecentConvo = convos[0];
-        setActiveConversationId(mostRecentConvo.id);
-        setCurrentSummary(mostRecentConvo.summary);
-        setGeneratedScript(mostRecentConvo.script);
+        const mostRecentConvo = convos.sort((a, b) => b.lastOpenedAt.toMillis() - a.lastOpenedAt.toMillis())[0];
+        if (mostRecentConvo) {
+            setActiveConversationId(mostRecentConvo.id);
+            setCurrentSummary(mostRecentConvo.summary);
+            setGeneratedScript(mostRecentConvo.script);
+        }
       }
     } catch (error) {
       console.error("Error fetching conversations:", error);
@@ -78,7 +79,8 @@ function VideoScriptAIPageContent() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, fullConversationText, currentSummary, toast]);
+  }, [user, activeConversationId, fullConversationText, currentSummary, toast, setGeneratedScript, setCurrentSummary, setActiveConversationId]);
+
 
   useEffect(() => {
     if (user && generateSheetState === 'expanded') {
@@ -86,36 +88,52 @@ function VideoScriptAIPageContent() {
     }
   }, [user, generateSheetState, fetchConversationsCallback]);
 
-
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    setIsSummarizing(true);
-    const updatedConversation = newIdeaChunk.trim()
-      ? (fullConversationText ? `${fullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
-      : fullConversationText;
-    
-    setFullConversationText(updatedConversation);
+    let newCombinedTextForAI = "";
 
-    if(newIdeaChunk.trim()) { 
-        setActiveConversationId(null); 
-        setGeneratedScript(''); 
+    // Use a temporary variable to hold the text that will be sent to the AI
+    // Update fullConversationText using functional update
+    setFullConversationText(prevFullConversationText => {
+      const updatedText = newIdeaChunk.trim()
+        ? (prevFullConversationText ? `${prevFullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
+        : prevFullConversationText;
+      newCombinedTextForAI = updatedText; // Capture the most up-to-date text
+      return updatedText;
+    });
+
+    // This needs to run after setFullConversationText has effectively updated newCombinedTextForAI
+    // However, state updates are async. The `newCombinedTextForAI` above will be the correct one.
+
+    if (!newCombinedTextForAI.trim() && !newIdeaChunk.trim()) { // Check if there's anything to summarize
+        setCurrentSummary('');
+        setIsSummarizing(false); // Ensure summarizing is reset if we bail early
+        return;
+    }
+    
+    setIsSummarizing(true);
+
+    if (newIdeaChunk.trim()) {
+        setActiveConversationId(null);
+        setGeneratedScript('');
     }
 
-    if (!updatedConversation.trim()) {
+    if (!newCombinedTextForAI.trim()) { // Redundant check, but safe
       setCurrentSummary('');
       setIsSummarizing(false);
       return;
     }
 
     try {
-      const result = await summarizeVideoIdea({ input: updatedConversation });
-      setCurrentSummary(result.summary);
+      const result = await summarizeVideoIdea({ input: newCombinedTextForAI });
+      setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing.");
     } catch (error) {
       console.error('Error summarizing idea:', error);
       toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
+      setCurrentSummary('Failed to get summary. Please try again.');
     } finally {
       setIsSummarizing(false);
     }
-  }, [fullConversationText, toast]);
+  }, [toast, setFullConversationText, setCurrentSummary, setActiveConversationId, setGeneratedScript, setIsSummarizing]);
 
 
   useEffect(() => {
@@ -127,10 +145,10 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false); 
-    setIsActivelyListening(false);
+    setIsActivelyListening(false); //  Set this immediately for UI responsiveness
     
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      recognitionRef.current.stop(); // Use stop() to get results
     }
   }, []);
 
@@ -159,6 +177,7 @@ function VideoScriptAIPageContent() {
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
           }
+          // Call the latest version of handleSummarizeIdea via ref
           await handleSummarizeIdeaRef.current(transcript);
         };
 
@@ -271,7 +290,7 @@ function VideoScriptAIPageContent() {
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript); 
+        if (summaryForScript) setCurrentSummary(summaryForScript); 
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea. Please try again.', variant: 'destructive' });
@@ -313,7 +332,6 @@ function VideoScriptAIPageContent() {
     setActiveConversationId(null);
     setVideoIdeaInput('');
     setGenerateSheetState('minimized'); 
-    toast({ title: "New Idea Started", description: "Previous context has been cleared."});
   };
 
   const handleHistoryItemClick = async (conversation: Conversation) => {
@@ -326,7 +344,7 @@ function VideoScriptAIPageContent() {
 
     try {
       await updateLastOpened(user.uid, conversation.id);
-      await fetchConversationsCallback(); 
+      // No need to call fetchConversationsCallback here, reordering can happen on next sheet open
     } catch (error) {
       console.error("Error updating last opened:", error);
       toast({title: "Error", description: "Could not update conversation timestamp.", variant: "destructive"});
@@ -467,9 +485,7 @@ function VideoScriptAIPageContent() {
             role="button"
             aria-label="Expand to view and generate script"
           >
-            <span className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60">
-              Generate
-            </span>
+             <span className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60">Generate</span>
           </div>
         ) : (
           <div className="flex flex-col h-full">
@@ -492,7 +508,7 @@ function VideoScriptAIPageContent() {
               onTouchEnd={handleSheetTouchEnd}
             >
               {isLoadingHistory && <p className="text-muted-foreground text-center">Loading history...</p>}
-              {!isLoadingHistory && conversations.length === 0 && !activeConversationId && !currentSummary && (
+              {!isLoadingHistory && conversations.length === 0 && !activeConversationId && !currentSummary && !generatedScript && (
                  <p className="text-muted-foreground text-center">
                     No past scripts found. Describe your idea first or generate a new script.
                  </p>
@@ -609,4 +625,3 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
-
