@@ -29,15 +29,14 @@ export default function VideoScriptAIPage() {
   const [currentSummary, setCurrentSummary] = useState('');
   const [generatedScript, setGeneratedScript] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
-  const [isActivelyListening, setIsActivelyListening] = useState(false); // For push-to-talk state
+  const [isActivelyListening, setIsActivelyListening] = useState(false);
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false); // Added initialization
   
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     if (!newIdeaChunk.trim()) {
-      // Do not toast if the chunk is empty, as this might happen on quick mic release
       return;
     }
     setIsSummarizing(true);
@@ -60,42 +59,57 @@ export default function VideoScriptAIPage() {
     }
   }, [fullConversationText, toast]);
 
+  const handleUserForceStop = useCallback(() => {
+    window.removeEventListener('mouseup', handleUserForceStop);
+    window.removeEventListener('touchend', handleUserForceStop);
+    
+    if (recognitionRef.current) {
+      recognitionRef.current.stop(); 
+    }
+  }, [recognitionRef]);
+
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
-        recognitionInstance.continuous = false; // Important for push-to-talk style
+        recognitionInstance.continuous = false;
         recognitionInstance.interimResults = false;
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
-          toast({ title: "Listening...", description: "Speak your video idea. Release to send." });
+          window.addEventListener('mouseup', handleUserForceStop);
+          window.addEventListener('touchend', handleUserForceStop);
         };
 
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          if (transcript) { // Ensure there's a transcript before summarizing
+          if (transcript) {
+            // Directly call handleSummarizeIdea, which now correctly uses the latest fullConversationText
             await handleSummarizeIdea(transcript);
           }
         };
 
         recognitionInstance.onerror = (event) => {
           console.error('Speech recognition error', event.error);
-          // Avoid toast for 'no-speech' if it's just a quick release without speech
           if (event.error !== 'no-speech' && event.error !== 'aborted') {
             toast({
               title: 'Speech Recognition Error',
-              description: `Error: ${event.error}`,
+              description: `Error: ${event.error}. Please ensure microphone permissions are granted.`,
               variant: 'destructive',
             });
           }
-          setIsActivelyListening(false); 
+          setIsActivelyListening(false);
+          window.removeEventListener('mouseup', handleUserForceStop);
+          window.removeEventListener('touchend', handleUserForceStop);
         };
 
         recognitionInstance.onend = () => {
           setIsActivelyListening(false);
+          window.removeEventListener('mouseup', handleUserForceStop);
+          window.removeEventListener('touchend', handleUserForceStop);
         };
         
         recognitionRef.current = recognitionInstance;
@@ -110,14 +124,16 @@ export default function VideoScriptAIPage() {
     
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); // Use abort for immediate stop
+        recognitionRef.current.abort(); 
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
       }
+      window.removeEventListener('mouseup', handleUserForceStop);
+      window.removeEventListener('touchend', handleUserForceStop);
     };
-  }, [toast, handleSummarizeIdea]);
+  }, [toast, handleSummarizeIdea, handleUserForceStop]); // Added handleSummarizeIdea to dependency array
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -132,29 +148,30 @@ export default function VideoScriptAIPage() {
 
   const handleMicButtonPress = () => {
     if (!recognitionRef.current) {
-      toast({ title: 'Speech API not ready', description: 'Speech recognition is not available.', variant: 'destructive' });
+      toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
     if (isSummarizing || isActivelyListening) {
-      if(isSummarizing) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
+      if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
       return;
     }
     try {
       recognitionRef.current.start();
     } catch (error: any) {
-       // Catch specific errors like "already-started" which can happen on rapid clicks
-      if (error.name !== 'InvalidStateError') { // InvalidStateError means it's already started or stopped
+      if (error.name === 'InvalidStateError') {
+        console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
+        setIsActivelyListening(false); 
+        window.removeEventListener('mouseup', handleUserForceStop);
+        window.removeEventListener('touchend', handleUserForceStop);
+
+      } else {
         console.error("Error starting recognition:", error);
-        toast({ title: 'Recognition Error', description: 'Could not start listening.', variant: 'destructive' });
+        toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
+        setIsActivelyListening(false); 
       }
     }
   };
 
-  const handleMicButtonRelease = () => {
-    if (recognitionRef.current && isActivelyListening) { 
-      recognitionRef.current.stop();
-    }
-  };
 
   const handleGenerateScript = async () => {
     if (!currentSummary.trim()) {
@@ -214,13 +231,11 @@ export default function VideoScriptAIPage() {
         <div className="flex items-center justify-between">
            <Button 
             onMouseDown={handleMicButtonPress}
-            onMouseUp={handleMicButtonRelease}
-            onTouchStart={(e) => { e.preventDefault(); handleMicButtonPress(); }} // preventDefault for potential scroll/zoom on touch
-            onTouchEnd={(e) => { e.preventDefault(); handleMicButtonRelease(); }}
+            onTouchStart={(e) => { e.preventDefault(); handleMicButtonPress(); }}
             variant={isActivelyListening ? "destructive" : "outline"} 
-            className="gap-2 select-none" // select-none to prevent text selection on hold
-            disabled={isSummarizing}
-            aria-label={isActivelyListening ? "Listening, release to stop" : "Hold to speak"}
+            className="gap-2 select-none"
+            disabled={isSummarizing} 
+            aria-label={isActivelyListening ? "Listening... Release to stop" : "Hold to Speak"}
           >
             {isActivelyListening ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mic className="h-5 w-5" />}
             {isActivelyListening ? 'Listening...' : 'Hold to Speak'}
