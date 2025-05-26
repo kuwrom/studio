@@ -23,7 +23,7 @@ declare global {
 }
 
 const MINIMIZED_SHEET_HEIGHT = '80px';
-const EXPANDED_SHEET_TARGET_VH = '85vh';
+const EXPANDED_SHEET_TARGET_VH = '90vh'; // Reverted from 85vh
 const SWIPE_DOWN_THRESHOLD = 50; // Pixels
 
 export default function VideoScriptAIPage() {
@@ -42,8 +42,8 @@ export default function VideoScriptAIPage() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
 
-  const handleUserForceStopRef = useRef<() => void>(() => {});
   const handleSummarizeIdeaRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const handleUserForceStopRef = useRef<() => void>(() => {});
 
   const scriptSheetContentRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
@@ -455,7 +455,7 @@ export default function VideoScriptAIPage() {
           "transition-all duration-300 ease-in-out", // Added transition for smooth height change
           generateSheetState === 'minimized'
             ? "bottom-[var(--minimized-sheet-height)] z-0" // Space for minimized sheet
-            : "bottom-[var(--expanded-sheet-target-vh)] z-10 cursor-pointer" // Space for expanded sheet, make it clickable
+            : `bottom-[${EXPANDED_SHEET_TARGET_VH}] z-10 cursor-pointer` // Space for expanded sheet, make it clickable
         )}
         onClick={() => {
           if (generateSheetState === 'expanded') {
