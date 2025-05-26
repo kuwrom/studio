@@ -2,15 +2,16 @@
 "use server";
 import { db } from '@/lib/firebase';
 import { collection, addDoc, query, where, orderBy, getDocs, serverTimestamp, doc, updateDoc, getDoc, limit } from 'firebase/firestore';
-import type { Timestamp } from 'firebase/firestore';
+// Remove Timestamp type import if no longer directly used in the interface
+// import type { Timestamp } from 'firebase/firestore';
 
 export interface Conversation {
   id: string;
   userId: string;
   summary: string;
   script: string;
-  createdAt: Timestamp;
-  lastOpenedAt: Timestamp;
+  createdAt: number; // Changed from Timestamp to number (milliseconds)
+  lastOpenedAt: number; // Changed from Timestamp to number (milliseconds)
 }
 
 export async function saveOrUpdateConversation(
@@ -30,12 +31,13 @@ export async function saveOrUpdateConversation(
     const conversationRef = doc(db, 'users', userId, 'conversations', conversationIdToUpdate);
     await updateDoc(conversationRef, {
       script,
-      summary, // Allow summary to be updated if it changed for an existing one
+      summary, 
       lastOpenedAt: serverTimestamp(),
     });
     return conversationIdToUpdate;
   } else {
     // Check if a conversation with a very similar summary already exists to avoid trivial duplicates
+    // For a more robust check, consider normalizing summaries (e.g., lowercase, trim) before comparison
     const q = query(userConversationsCol, where('summary', '==', summary), limit(1));
     const querySnapshot = await getDocs(q);
 
@@ -66,10 +68,18 @@ export async function getConversations(userId: string): Promise<Conversation[]> 
   const userConversationsCol = collection(db, 'users', userId, 'conversations');
   const q = query(userConversationsCol, orderBy('lastOpenedAt', 'desc'));
   const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(docSnap => ({
-    id: docSnap.id,
-    ...docSnap.data()
-  } as Conversation));
+  return querySnapshot.docs.map(docSnap => {
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      userId: data.userId,
+      summary: data.summary,
+      script: data.script,
+      // Convert Timestamps to milliseconds
+      createdAt: data.createdAt?.toMillis() || Date.now(), // Fallback for safety
+      lastOpenedAt: data.lastOpenedAt?.toMillis() || Date.now(), // Fallback for safety
+    } as Conversation;
+  });
 }
 
 export async function updateLastOpened(userId: string, conversationId: string): Promise<void> {
@@ -85,7 +95,16 @@ export async function getConversationById(userId: string, conversationId: string
   const conversationRef = doc(db, 'users', userId, 'conversations', conversationId);
   const docSnap = await getDoc(conversationRef);
   if (docSnap.exists()) {
-    return { id: docSnap.id, ...docSnap.data() } as Conversation;
+    const data = docSnap.data();
+    return { 
+      id: docSnap.id, 
+      userId: data.userId,
+      summary: data.summary,
+      script: data.script,
+      // Convert Timestamps to milliseconds
+      createdAt: data.createdAt?.toMillis() || Date.now(), // Fallback for safety
+      lastOpenedAt: data.lastOpenedAt?.toMillis() || Date.now(), // Fallback for safety
+    } as Conversation;
   }
   return null;
 }
