@@ -23,7 +23,7 @@ declare global {
 }
 
 const MINIMIZED_SHEET_HEIGHT = '80px';
-const EXPANDED_SHEET_TARGET_VH = '90vh'; 
+const EXPANDED_SHEET_TARGET_VH = '90vh';
 const SWIPE_DOWN_THRESHOLD = 50; // Pixels
 
 export default function VideoScriptAIPage() {
@@ -82,11 +82,11 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
 
     setIsMicButtonPressed(false); // Immediate visual feedback for visualizer
-    // isActivelyListening will be set by onend/onerror
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); // Use stop to allow onresult to fire
     }
+    // isActivelyListening will be set by onend/onerror
   }, []);
 
   useEffect(() => {
@@ -99,13 +99,12 @@ export default function VideoScriptAIPage() {
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
         recognitionInstance.continuous = false;
-        recognitionInstance.interimResults = false;
+        recognitionInstance.interimResults = false; // We only care about the final result
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
           setIsAttemptingToListen(false);
-          // Window listeners are added in handleMicButtonInteractionStart now
         };
 
         recognitionInstance.onresult = async (event) => {
@@ -192,7 +191,7 @@ export default function VideoScriptAIPage() {
       console.error("Error starting recognition:", error);
        if (error.name === 'InvalidStateError') {
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
-          if (recognitionRef.current) {
+          if (recognitionRef.current) { // Ensure ref is still valid
               recognitionRef.current.abort(); 
           }
       } else {
@@ -262,6 +261,7 @@ export default function VideoScriptAIPage() {
         onMouseDown={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
           if (!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded')) {
+            e.preventDefault(); // Prevent potential double tap zoom or other default touch behaviors
             handleMicButtonInteractionStart();
           }
         }}
@@ -348,9 +348,10 @@ export default function VideoScriptAIPage() {
 
     const deltaY = e.touches[0].clientY - touchStartRef.current.y;
 
+    // Only minimize if swiping down significantly AND content is at the top
     if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
       setGenerateSheetState('minimized');
-      touchStartRef.current = null; 
+      touchStartRef.current = null; // Reset touch start data to prevent re-triggering
     }
   };
 
@@ -399,19 +400,24 @@ export default function VideoScriptAIPage() {
               onTouchEnd={handleSheetTouchEnd}
             >
               <Label htmlFor="generatedScriptArea" className="text-base font-medium mb-2 block text-muted-foreground">Your Script:</Label>
-              <Textarea
+              <div
                 id="generatedScriptArea"
-                value={generatedScript || (currentSummary ? "Click 'Generate' below to create your video script." : "Please describe your idea first on the screen above.")}
-                readOnly
-                placeholder="Your generated script will appear here..."
-                className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap"
+                className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap p-3 rounded-md border border-input min-h-[80px]"
                 aria-live="polite"
-              />
+              >
+                {generatedScript ? (
+                  generatedScript
+                ) : (
+                  <span className="text-muted-foreground">
+                    {currentSummary ? "Click 'Generate' below to create your video script." : "Please describe your idea first on the screen above."}
+                  </span>
+                )}
+              </div>
             </CardContent>
             <div className="p-4 border-t border-border bg-card">
               <Button
                 onClick={handleGenerateScript}
-                disabled={isGeneratingScript || isActivelyListening || isSummarizing || isAttemptingToListen || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())}
+                disabled={isGeneratingScript || isSheetContentDisabled || (!currentSummary.trim() && !fullConversationText.trim() && !videoIdeaInput.trim())}
                 className="w-full gap-2 bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-3"
               >
                 {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
@@ -475,4 +481,3 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
-
