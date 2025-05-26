@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, FormEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Send, Sparkles, Mic, RotateCcw, LogOut } from 'lucide-react';
 import { summarizeVideoIdea } from '@/ai/flows/summarize-video-idea';
 import { generateVideoScript } from '@/ai/flows/generate-video-script';
@@ -18,6 +18,10 @@ import {
   updateLastOpened,
   type Conversation
 } from '@/services/conversationService';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+
 
 type GenerateSheetState = 'minimized' | 'expanded';
 
@@ -33,6 +37,14 @@ const MINIMIZED_SHEET_HEIGHT = '80px';
 const EXPANDED_SHEET_TARGET_VH = '90vh'; 
 const SWIPE_DOWN_THRESHOLD = 50;
 
+const lengthOptions = [
+  { value: 0, label: "Very Short (Under 1 min)" },
+  { value: 1, label: "Short (1-3 mins)" },
+  { value: 2, label: "Medium (3-5 mins)" },
+  { value: 3, label: "Long (5-10 mins)" },
+  { value: 4, label: "Very Long (10+ mins)" },
+];
+const defaultVideoLengthValue = 2; // "Medium"
 
 function VideoScriptAIPageContent() {
   const { user, signOut } = useAuth();
@@ -56,6 +68,18 @@ function VideoScriptAIPageContent() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  // New states for video form and length
+  const [activeVideoForm, setActiveVideoForm] = useState<'long-form' | 'short-form'>('long-form');
+  const [activeVideoLengthValue, setActiveVideoLengthValue] = useState<number>(defaultVideoLengthValue);
+  const [activeVideoLengthLabel, setActiveVideoLengthLabel] = useState<string>(lengthOptions[defaultVideoLengthValue].label);
+
+  useEffect(() => {
+    const selectedOption = lengthOptions.find(opt => opt.value === activeVideoLengthValue);
+    if (selectedOption) {
+      setActiveVideoLengthLabel(selectedOption.label);
+    }
+  }, [activeVideoLengthValue]);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
@@ -99,8 +123,6 @@ function VideoScriptAIPageContent() {
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     let textThatWillBeSummarized: string;
-
-    // Use the ref to get the most current fullConversationText
     const currentTextFromRef = fullConversationTextRef.current;
 
     if (newIdeaChunk.trim()) {
@@ -110,11 +132,9 @@ function VideoScriptAIPageContent() {
         ? `${currentTextFromRef}\n\n${newIdeaChunk}`
         : newIdeaChunk;
     } else {
-      // If newIdeaChunk is empty, summarize the existing conversation if any
       textThatWillBeSummarized = currentTextFromRef;
     }
     
-    // Update the state for the UI
     setFullConversationText(textThatWillBeSummarized);
 
     if (!textThatWillBeSummarized.trim()) {
@@ -152,10 +172,8 @@ function VideoScriptAIPageContent() {
     window.removeEventListener('mouseup', handleUserForceStopRef.current);
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
-    // Immediate UI state reset for responsiveness
     setIsMicButtonPressed(false);
     setIsActivelyListening(false); 
-    // setIsAttemptingToListen(false); // Let onend/onerror handle this for SpeechAPI state
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
@@ -264,12 +282,11 @@ function VideoScriptAIPageContent() {
     } catch (error: any) {
       console.error("Error starting recognition:", error);
       if (error.name === 'InvalidStateError' && recognitionRef.current) { 
-          console.warn("SpeechRecognition InvalidStateError on start. Attempting to abort.");
-          recognitionRef.current.abort(); // Try to abort if it's in a weird state
+          console.warn("SpeechRecognition InvalidStateError on start. Attempting to abort and reset state.");
+          recognitionRef.current.abort(); 
       }
       toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
       
-      // Robust cleanup if start() fails
       setIsMicButtonPressed(false);
       setIsActivelyListening(false); 
       setIsAttemptingToListen(false);
@@ -320,7 +337,11 @@ function VideoScriptAIPageContent() {
     }
 
     try {
-      const result = await generateVideoScript({ contextSummary: summaryForScript });
+      const result = await generateVideoScript({ 
+        contextSummary: summaryForScript,
+        videoForm: activeVideoForm,
+        videoLength: activeVideoLengthLabel,
+      });
       const newScript = result.script;
       setGeneratedScript(newScript);
       
@@ -342,6 +363,8 @@ function VideoScriptAIPageContent() {
     setGeneratedScript('');
     setActiveConversationId(null);
     setVideoIdeaInput('');
+    setActiveVideoForm('long-form');
+    setActiveVideoLengthValue(defaultVideoLengthValue);
     if (generateSheetState === 'expanded') {
         setGenerateSheetState('minimized');
     }
@@ -354,6 +377,9 @@ function VideoScriptAIPageContent() {
     setFullConversationText(conversation.fullConversation || conversation.summary);
     setActiveConversationId(conversation.id);
     setVideoIdeaInput('');
+    // Reset form/length options when loading history, or load them if saved
+    setActiveVideoForm('long-form'); // Reset to default
+    setActiveVideoLengthValue(defaultVideoLengthValue); // Reset to default
 
     try {
       await updateLastOpened(user.uid, conversation.id);
@@ -368,7 +394,6 @@ function VideoScriptAIPageContent() {
     const lines = script.split('\n');
     return lines.slice(0, lineLimit).join('\n') + (lines.length > lineLimit ? '...' : '');
   };
-
 
   const renderDescribeArea = () => (
     <div className="flex-grow flex flex-col p-4 sm:p-6 bg-transparent relative h-full">
@@ -479,7 +504,6 @@ function VideoScriptAIPageContent() {
 
     const deltaY = e.touches[0].clientY - touchStartRef.current.y;
 
-    // Only minimize if swiping down AND content is at the top
     if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
       setGenerateSheetState('minimized');
       touchStartRef.current = null; 
@@ -489,6 +513,40 @@ function VideoScriptAIPageContent() {
   const handleSheetTouchEnd = () => {
     touchStartRef.current = null;
   };
+
+  const renderIdeaConfiguration = () => (
+    <div className="space-y-3 mb-3 p-1 border-b pb-3">
+      <div>
+        <Label htmlFor="video-form" className="text-xs text-muted-foreground">Video Form</Label>
+        <Tabs
+          id="video-form"
+          value={activeVideoForm}
+          onValueChange={(value) => setActiveVideoForm(value as 'long-form' | 'short-form')}
+          className="w-full mt-1"
+        >
+          <TabsList className="grid w-full grid-cols-2 h-9">
+            <TabsTrigger value="long-form" className="text-xs">Long-form</TabsTrigger>
+            <TabsTrigger value="short-form" className="text-xs">Short-form</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <Label htmlFor="video-length" className="text-xs text-muted-foreground">Video Length</Label>
+          <span className="text-xs text-muted-foreground">{activeVideoLengthLabel}</span>
+        </div>
+        <Slider
+          id="video-length"
+          min={0}
+          max={lengthOptions.length - 1}
+          step={1}
+          value={[activeVideoLengthValue]}
+          onValueChange={(value) => setActiveVideoLengthValue(value[0])}
+          className="w-full"
+        />
+      </div>
+    </div>
+  );
 
 
   const renderGenerateSheet = () => {
@@ -554,6 +612,7 @@ function VideoScriptAIPageContent() {
               {(!activeConversationId && (currentSummary || generatedScript)) && (
                 <Card className="mb-4 border-primary ring-2 ring-primary shadow-lg">
                   <CardHeader>
+                    {renderIdeaConfiguration()}
                     <CardTitle className="text-lg">{currentSummary || "New Idea In Progress"}</CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -574,6 +633,7 @@ function VideoScriptAIPageContent() {
                   )}
                 >
                   <CardHeader>
+                    {activeConversationId === convo.id && renderIdeaConfiguration()}
                     <CardTitle className="text-lg">{convo.summary}</CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -620,7 +680,7 @@ function VideoScriptAIPageContent() {
           "transition-all duration-300 ease-in-out", 
           generateSheetState === 'minimized'
             ? "bottom-[var(--minimized-sheet-height)] z-0" 
-            : `bottom-[${EXPANDED_SHEET_TARGET_VH}] z-10 cursor-pointer` 
+            : `bottom-[var(--expanded-sheet-target-vh)] z-10 cursor-pointer` 
         )}
         onClick={() => {
           if (generateSheetState === 'expanded') {
@@ -663,4 +723,3 @@ export default function Page() {
 
   return <VideoScriptAIPageContent />;
 }
-
