@@ -4,20 +4,23 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
-interface ReactiveBorderVisualizerProps {
+interface AudioWaveVisualizerProps {
   isActive: boolean;
   className?: string;
-  borderColor?: string;
+  // borderColor prop is removed, gradient is internal now
   baseBorderThickness?: number;
-  amplitudeSensitivity?: number; 
+  amplitudeSensitivity?: number;
+  colorStart?: string; // Optional: for gradient start color
+  colorEnd?: string;   // Optional: for gradient end color
 }
 
-const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
+const AudioWaveVisualizer: React.FC<AudioWaveVisualizerProps> = ({
   isActive,
   className,
-  borderColor = 'hsl(276 87% 53.3%)', // Default to a theme-like purple/blue
-  baseBorderThickness = 3, 
-  amplitudeSensitivity = 0.08, 
+  baseBorderThickness = 3,
+  amplitudeSensitivity = 0.08,
+  colorStart = 'hsl(220, 90%, 60%)', // Default blue
+  colorEnd = 'hsl(var(--primary))',   // Default theme purple
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -38,12 +41,12 @@ const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
         mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256; 
-        analyserRef.current.smoothingTimeConstant = 0.3; // Some smoothing
+        analyserRef.current.fftSize = 256;
+        analyserRef.current.smoothingTimeConstant = 0.3;
 
         sourceRef.current = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
         sourceRef.current.connect(analyserRef.current);
-        
+
         dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
         startDrawing();
 
@@ -73,7 +76,7 @@ const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
         audioContextRef.current = null;
       }
       dataArrayRef.current = null;
-      
+
       const canvas = canvasRef.current;
       if (canvas) {
         const context = canvas.getContext('2d');
@@ -90,9 +93,9 @@ const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
     }
 
     return () => {
-      cleanupAudio(); 
+      cleanupAudio();
     };
-  }, [isActive]); 
+  }, [isActive]);
 
   const startDrawing = () => {
     const canvas = canvasRef.current;
@@ -102,6 +105,12 @@ const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
     const canvasCtx = canvas.getContext('2d');
     if (!canvasCtx) return;
 
+    // Resolve actual color values if they are CSS variables
+    const resolvedColorEnd = colorEnd.startsWith('hsl(var(--primary))') 
+      ? getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() 
+      : colorEnd;
+    const finalColorEnd = resolvedColorEnd ? `hsl(${resolvedColorEnd})` : 'purple'; // fallback
+
     const drawBorder = () => {
       animationFrameIdRef.current = requestAnimationFrame(drawBorder);
       if (!analyserRef.current || !dataArrayRef.current || !canvasCtx || !canvasRef.current) return;
@@ -110,72 +119,64 @@ const AudioWaveVisualizer: React.FC<ReactiveBorderVisualizerProps> = ({
 
       let sumOfSquares = 0;
       for (let i = 0; i < dataArrayRef.current.length; i++) {
-        const value = (dataArrayRef.current[i] - 128) / 128.0; // Normalize to -1 to 1
+        const value = (dataArrayRef.current[i] - 128) / 128.0;
         sumOfSquares += value * value;
       }
-      const rms = Math.sqrt(sumOfSquares / dataArrayRef.current.length); // Root Mean Square
-      
-      // RMS is 0 to 1. Scale it to affect thickness.
-      const dynamicThicknessAddition = rms * baseBorderThickness * amplitudeSensitivity * 100; // Tuned factor
-      const currentBorderThickness = Math.max(1, baseBorderThickness + dynamicThicknessAddition); // Ensure minimum thickness
+      const rms = Math.sqrt(sumOfSquares / dataArrayRef.current.length);
+      const dynamicThicknessAddition = rms * baseBorderThickness * amplitudeSensitivity * 100;
+      const currentBorderThickness = Math.max(1, baseBorderThickness + dynamicThicknessAddition);
 
       canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-      canvasCtx.fillStyle = borderColor;
 
       // Top border
+      let gradient = canvasCtx.createLinearGradient(0, 0, 0, currentBorderThickness);
+      gradient.addColorStop(0, colorStart);
+      gradient.addColorStop(1, finalColorEnd);
+      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(0, 0, canvas.width, currentBorderThickness);
+
       // Bottom border
+      gradient = canvasCtx.createLinearGradient(0, canvas.height - currentBorderThickness, 0, canvas.height);
+      gradient.addColorStop(0, finalColorEnd);
+      gradient.addColorStop(1, colorStart);
+      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(0, canvas.height - currentBorderThickness, canvas.width, currentBorderThickness);
+
       // Left border
+      gradient = canvasCtx.createLinearGradient(0, 0, currentBorderThickness, 0);
+      gradient.addColorStop(0, colorStart);
+      gradient.addColorStop(1, finalColorEnd);
+      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(0, 0, currentBorderThickness, canvas.height);
+
       // Right border
+      gradient = canvasCtx.createLinearGradient(canvas.width - currentBorderThickness, 0, canvas.width, 0);
+      gradient.addColorStop(0, finalColorEnd);
+      gradient.addColorStop(1, colorStart);
+      canvasCtx.fillStyle = gradient;
       canvasCtx.fillRect(canvas.width - currentBorderThickness, 0, currentBorderThickness, canvas.height);
     };
     drawBorder();
   };
-  
+
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !canvas.parentElement && !document.body) return;
+    if (!canvas) return;
 
-    const parent = canvas.parentElement || document.body; // Fallback to body if no direct parent
-    const resizeObserver = new ResizeObserver(() => {
-      if(canvas) { // Check if canvas still mounted
-        // For fixed full-screen, use window dimensions
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+    const handleResize = () => {
+      if (canvasRef.current) {
+        canvasRef.current.width = window.innerWidth;
+        canvasRef.current.height = window.innerHeight;
       }
-    });
+    };
 
-    if (canvas) { // Only observe if canvas exists
-        // Set initial size
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        // Observe window resize for full-screen canvas
-        window.addEventListener('resize', () => {
-            if(canvas) {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            }
-        });
-        // Note: ResizeObserver on parent is less relevant for fixed full-screen
-        // but kept if className might imply non-fixed parent in other uses.
-        // For this specific full-screen use, window resize is key.
-        // resizeObserver.observe(parent); 
-    }
-    
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Initial size set
+
     return () => {
-        // resizeObserver.disconnect();
-        // Clean up window resize listener if added
-        window.removeEventListener('resize', () => {
-             if(canvas) {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            }
-        });
-    }
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
-
 
   return <canvas ref={canvasRef} className={cn('w-full h-full', className)} />;
 };
