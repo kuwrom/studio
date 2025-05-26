@@ -77,11 +77,11 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     setIsMicButtonPressed(false); // Immediate visual feedback for visualizer
+    setIsActivelyListening(false); // Immediate UI feedback for "Listening..." text
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); 
     }
-    // Note: isActivelyListening will be set to false by onend or onerror
   }, []); 
 
   useEffect(() => {
@@ -154,7 +154,7 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleUserForceStop]); // handleUserForceStop is stable due to its own useCallback with empty deps
+  }, [toast, handleUserForceStop]);
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
