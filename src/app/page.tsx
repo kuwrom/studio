@@ -23,7 +23,7 @@ declare global {
 }
 
 const MINIMIZED_SHEET_HEIGHT = '80px';
-const EXPANDED_SHEET_TARGET_VH = '90vh'; // Reverted from 85vh
+const EXPANDED_SHEET_TARGET_VH = '90vh'; 
 const SWIPE_DOWN_THRESHOLD = 50; // Pixels
 
 export default function VideoScriptAIPage() {
@@ -82,7 +82,7 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
 
     setIsMicButtonPressed(false); // Immediate visual feedback for visualizer
-    // setIsActivelyListening(false); // Let onend/onerror handle this for API consistency
+    // isActivelyListening will be set by onend/onerror
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); // Use stop to allow onresult to fire
@@ -148,9 +148,9 @@ export default function VideoScriptAIPage() {
         });
       }
     }
-    return () => { // Cleanup function
+    return () => { 
       if (recognitionRef.current) {
-        recognitionRef.current.abort(); // Use abort on cleanup
+        recognitionRef.current.abort(); 
         recognitionRef.current.onstart = null;
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
@@ -185,16 +185,15 @@ export default function VideoScriptAIPage() {
     setIsAttemptingToListen(true);
     try {
       setIsMicButtonPressed(true);
-      // Add window listeners immediately to catch release even if onstart doesn't fire or button becomes disabled
       window.addEventListener('mouseup', handleUserForceStopRef.current);
       window.addEventListener('touchend', handleUserForceStopRef.current);
       recognitionRef.current.start();
     } catch (error: any) {
       console.error("Error starting recognition:", error);
-      if (error.name === 'InvalidStateError') {
+       if (error.name === 'InvalidStateError') {
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
           if (recognitionRef.current) {
-              recognitionRef.current.abort(); // Try to reset the API state
+              recognitionRef.current.abort(); 
           }
       } else {
         toast({ title: 'Recognition Error', description: `Could not start listening: ${error.message}`, variant: 'destructive' });
@@ -202,7 +201,6 @@ export default function VideoScriptAIPage() {
       setIsMicButtonPressed(false);
       setIsActivelyListening(false);
       setIsAttemptingToListen(false);
-      // Clean up listeners if start fails
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     }
@@ -264,7 +262,6 @@ export default function VideoScriptAIPage() {
         onMouseDown={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
           if (!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded')) {
-            // e.preventDefault(); // Prevent default only if needed, might interfere with some accessibility features
             handleMicButtonInteractionStart();
           }
         }}
@@ -285,7 +282,7 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Listening...</span>;
             }
-            if (isSummarizing && !isActivelyListening) { // Show "Updating..." only if not actively listening
+            if (isSummarizing && !isActivelyListening) { 
               return <span className={cn(baseTextClasses, gradientTextClasses)}>Updating...</span>;
             }
             if (currentSummary) {
@@ -351,10 +348,9 @@ export default function VideoScriptAIPage() {
 
     const deltaY = e.touches[0].clientY - touchStartRef.current.y;
 
-    // Check if swipe down and content is at the top
     if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
       setGenerateSheetState('minimized');
-      touchStartRef.current = null; // Reset after action
+      touchStartRef.current = null; 
     }
   };
 
@@ -408,7 +404,7 @@ export default function VideoScriptAIPage() {
                 value={generatedScript || (currentSummary ? "Click 'Generate' below to create your video script." : "Please describe your idea first on the screen above.")}
                 readOnly
                 placeholder="Your generated script will appear here..."
-                className="w-full min-h-[200px] sm:min-h-[300px] text-base bg-background text-foreground shadow-sm whitespace-pre-wrap"
+                className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap"
                 aria-live="polite"
               />
             </CardContent>
@@ -448,14 +444,13 @@ export default function VideoScriptAIPage() {
         borderColor="black"
       />
 
-      {/* Describe Area Container */}
       <div
         className={cn(
           "absolute top-0 left-0 right-0 bg-background",
-          "transition-all duration-300 ease-in-out", // Added transition for smooth height change
+          "transition-all duration-300 ease-in-out", 
           generateSheetState === 'minimized'
-            ? "bottom-[var(--minimized-sheet-height)] z-0" // Space for minimized sheet
-            : `bottom-[${EXPANDED_SHEET_TARGET_VH}] z-10 cursor-pointer` // Space for expanded sheet, make it clickable
+            ? "bottom-[var(--minimized-sheet-height)] z-0" 
+            : `bottom-[${EXPANDED_SHEET_TARGET_VH}] z-10 cursor-pointer` 
         )}
         onClick={() => {
           if (generateSheetState === 'expanded') {
@@ -463,14 +458,12 @@ export default function VideoScriptAIPage() {
           }
         }}
       >
-        {/* Overlay for "Describe" text when sheet is expanded */}
         {generateSheetState === 'expanded' && (
           <div className="w-full h-full flex items-center justify-center bg-background/50 backdrop-blur-sm">
             <h2 className="text-3xl font-semibold text-muted-foreground opacity-80">Describe</h2>
           </div>
         )}
 
-        {/* Actual Describe Content when sheet is minimized */}
         {generateSheetState === 'minimized' && (
             <div className="h-full flex flex-col">
                  {renderDescribeArea()}
