@@ -40,32 +40,30 @@ export default function VideoScriptAIPage() {
 
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
-    if (!newIdeaChunk.trim() && !fullConversationText.trim()) { // if new chunk is empty and no existing conversation
+    if (!newIdeaChunk.trim() && !fullConversationText.trim()) {
       setIsActivelyListening(false);
       setIsMicButtonPressed(false);
       return;
     }
     
     setIsSummarizing(true);
-    // Append new chunk only if it's not empty. If it's empty but fullConversationText exists, we re-summarize existing.
     const updatedConversation = newIdeaChunk.trim() 
       ? (fullConversationText ? `${fullConversationText}\n\n${newIdeaChunk}` : newIdeaChunk)
       : fullConversationText;
 
     setFullConversationText(updatedConversation);
 
-    if (!updatedConversation.trim()) { // if after potential append, it's still empty
+    if (!updatedConversation.trim()) {
         setIsSummarizing(false);
         setIsActivelyListening(false);
         setIsMicButtonPressed(false);
-        setCurrentSummary(''); // Clear summary if conversation is empty
+        setCurrentSummary(''); 
         return;
     }
 
     try {
       const result = await summarizeVideoIdea({ input: updatedConversation });
       setCurrentSummary(result.summary);
-      // Toast removed as per user request
     } catch (error) {
       console.error('Error summarizing idea:', error);
       toast({ title: 'Error Summarizing', description: 'Could not process your input. Please try again.', variant: 'destructive' });
@@ -79,12 +77,11 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
     
     if (recognitionRef.current) {
-      recognitionRef.current.stop(); // Use stop() to ensure onresult is called
+      recognitionRef.current.stop(); 
     }
-    // Immediate UI reset for responsiveness
     setIsActivelyListening(false);
     setIsMicButtonPressed(false);
-  }, []); // Dependencies are empty as it only uses stable refs and setters
+  }, []); 
 
   useEffect(() => {
     handleUserForceStopRef.current = handleUserForceStop;
@@ -101,15 +98,12 @@ export default function VideoScriptAIPage() {
 
         recognitionInstance.onstart = () => {
           setIsActivelyListening(true);
-          // Add listeners only when recognition actually starts
           window.addEventListener('mouseup', handleUserForceStopRef.current);
           window.addEventListener('touchend', handleUserForceStopRef.current);
         };
 
         recognitionInstance.onresult = async (event) => {
           const transcript = event.results[0][0].transcript;
-          // `handleSummarizeIdea` will be called with the transcript.
-          // `isActivelyListening` and `isMicButtonPressed` will be reset by `onend` or `handleUserForceStop`.
           if (transcript) {
             await handleSummarizeIdea(transcript);
           }
@@ -158,13 +152,13 @@ export default function VideoScriptAIPage() {
       window.removeEventListener('mouseup', handleUserForceStopRef.current);
       window.removeEventListener('touchend', handleUserForceStopRef.current);
     };
-  }, [toast, handleSummarizeIdea, handleUserForceStop]); // handleSummarizeIdea is now a dependency
+  }, [toast, handleSummarizeIdea, handleUserForceStop]);
 
   const handleTextInputSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const currentInput = videoIdeaInput.trim();
     if (currentInput) {
-      setVideoIdeaInput(''); // Clear input after sending
+      setVideoIdeaInput(''); 
       await handleSummarizeIdea(currentInput);
     } else {
        toast({ title: 'Input Required', description: 'Please type your video idea.', variant: 'destructive' });
@@ -176,28 +170,24 @@ export default function VideoScriptAIPage() {
       toast({ title: 'Speech API not ready', description: 'Speech recognition is not available or not yet initialized.', variant: 'destructive' });
       return;
     }
-    // Prevent starting if already listening or if it's currently summarizing (unless it's an update summarization)
-    if (isActivelyListening || (isSummarizing && !currentSummary) ) { 
+    if (isActivelyListening || isSummarizing ) { 
       if(isSummarizing && !isActivelyListening) toast({ title: 'Processing...', description: 'Please wait for the current idea to be summarized.', variant: 'default' });
       return;
     }
 
     try {
-      setIsMicButtonPressed(true); // Visual feedback starts
-      // onstart will set isActivelyListening to true
+      setIsMicButtonPressed(true); 
       recognitionRef.current.start();
     } catch (error: any) {
       setIsMicButtonPressed(false);
-      setIsActivelyListening(false); // Ensure reset on error
+      setIsActivelyListening(false); 
 
       if (error.name === 'InvalidStateError') {
-        // This can happen if start() is called while already started or in a weird state.
-        // Attempt to recover by ensuring global listeners are cleaned up.
         console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
         window.removeEventListener('mouseup', handleUserForceStopRef.current);
         window.removeEventListener('touchend', handleUserForceStopRef.current);
         if (recognitionRef.current) {
-            recognitionRef.current.abort(); // Try aborting to fully reset
+            recognitionRef.current.abort(); 
         }
       } else {
         console.error("Error starting recognition:", error);
@@ -216,16 +206,15 @@ export default function VideoScriptAIPage() {
     }
 
     setIsGeneratingScript(true);
-    setGeneratedScript(''); // Clear previous script
+    setGeneratedScript(''); 
 
     let summaryForScript = currentSummary;
 
-    // If no currentSummary but other text exists, try to summarize it first
     if (!summaryForScript && (fullConversationText.trim() || videoIdeaInput.trim())) {
       try {
         const tempSummaryResult = await summarizeVideoIdea({ input: fullConversationText.trim() || videoIdeaInput.trim() });
         summaryForScript = tempSummaryResult.summary;
-        setCurrentSummary(summaryForScript); // Update UI with this summary
+        setCurrentSummary(summaryForScript); 
       } catch (error) {
         console.error('Error summarizing idea before script generation:', error);
         toast({ title: 'Summarization Failed', description: 'Could not summarize the idea to generate a script. Please try again.', variant: 'destructive' });
@@ -234,7 +223,7 @@ export default function VideoScriptAIPage() {
       }
     }
 
-    if (!summaryForScript) { // If still no summary after trying
+    if (!summaryForScript) { 
         toast({ title: 'Summary Required', description: 'Could not obtain a summary for script generation.', variant: 'destructive' });
         setIsGeneratingScript(false);
         return;
@@ -243,7 +232,6 @@ export default function VideoScriptAIPage() {
     try {
       const result = await generateVideoScript({ contextSummary: summaryForScript });
       setGeneratedScript(result.script);
-      // Toast removed as per user request
       setCurrentView('script');
     } catch (error) {
       console.error('Error generating script:', error);
@@ -264,9 +252,9 @@ export default function VideoScriptAIPage() {
       </CardHeader>
       <CardContent
         className="flex-grow p-4 sm:p-6 flex flex-col items-center justify-center text-center cursor-pointer"
-        onMouseDown={!isActivelyListening && !(isSummarizing && !currentSummary) ? handleMicButtonInteractionStart : undefined}
+        onMouseDown={isActivelyListening || isSummarizing ? undefined : handleMicButtonInteractionStart}
         onTouchStart={(e) => {
-          if (!isActivelyListening && !(isSummarizing && !currentSummary)) {
+          if (!(isActivelyListening || isSummarizing)) {
             e.preventDefault(); 
             handleMicButtonInteractionStart();
           }
@@ -284,25 +272,12 @@ export default function VideoScriptAIPage() {
             if (isActivelyListening) {
               return <span className="text-primary text-xl font-medium">Listening...</span>;
             }
-            // Initial summary in progress (e.g., after text input submission), and no prior summary exists
-            if (isSummarizing && !currentSummary) { 
+            if (isSummarizing) { 
               return <Loader2 className="h-10 w-10 animate-spin text-primary" />;
             }
-            // If there's a summary, display it.
             if (currentSummary) {
-              return (
-                <>
-                  <span className="text-foreground text-xl font-medium whitespace-pre-wrap">{currentSummary}</span>
-                  {/* If an update to this summary is in progress, show a small indicator */}
-                  {isSummarizing && ( 
-                    <span className="text-sm text-muted-foreground block mt-2">
-                      Updating summary... <Loader2 className="inline h-4 w-4 animate-spin" />
-                    </span>
-                  )}
-                </>
-              );
+              return <span className="text-foreground text-xl font-medium whitespace-pre-wrap">{currentSummary}</span>;
             }
-            // Default state: no active listening, not in initial summarization, no summary yet.
             return (
               <span className="text-muted-foreground text-xl font-medium whitespace-pre-wrap">
                 Press and hold in this area to speak,
@@ -322,15 +297,15 @@ export default function VideoScriptAIPage() {
             onChange={(e) => setVideoIdeaInput(e.target.value)}
             placeholder="Type your video idea chunk here..."
             className="flex-grow text-base"
-            disabled={isActivelyListening || (isSummarizing && !currentSummary)}
+            disabled={isActivelyListening || isSummarizing}
           />
           <Button 
             type="submit" 
             size="icon" 
             aria-label="Submit text idea" 
-            disabled={isActivelyListening || (isSummarizing && !currentSummary) || !videoIdeaInput.trim()}
+            disabled={isActivelyListening || isSummarizing || !videoIdeaInput.trim()}
           >
-            {(isSummarizing && !currentSummary && !isActivelyListening && videoIdeaInput.trim()) ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+            {(isSummarizing && !isActivelyListening && videoIdeaInput.trim()) ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           </Button>
         </form>
         <div className="flex items-center justify-end"> 
@@ -338,10 +313,8 @@ export default function VideoScriptAIPage() {
             onClick={() => {
               const ideaExists = currentSummary || fullConversationText.trim() || videoIdeaInput.trim();
               if (ideaExists) {
-                navigateTo('script'); // Navigate if idea exists
+                navigateTo('script'); 
               } else if (currentView === 'input' && !isGeneratingScript && !isActivelyListening && !isSummarizing){
-                // If on input view and no idea, and not busy, then generate script from current state.
-                // This typically means currentSummary should exist. If not, handleGenerateScript will try to make one.
                 handleGenerateScript(); 
               } else if (!ideaExists) {
                 toast({title: "No Idea Yet", description: "Please provide an idea first by speaking or typing.", variant: "default"});
@@ -349,7 +322,7 @@ export default function VideoScriptAIPage() {
             }} 
             variant="default" 
             className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hidden sm:flex" 
-            disabled={isGeneratingScript || isActivelyListening || (isSummarizing && !currentSummary)} 
+            disabled={isGeneratingScript || isActivelyListening || isSummarizing} 
           >
              {isGeneratingScript ? <Loader2 className="h-5 w-5 animate-spin" /> : <>Next <ArrowRight className="h-5 w-5" /></>}
           </Button>
@@ -410,8 +383,8 @@ export default function VideoScriptAIPage() {
         baseBorderThickness={3} 
         amplitudeSensitivity={0.1}
         className="fixed inset-0 z-[1000] pointer-events-none" 
-        colorStart='hsl(220, 90%, 60%)' // Blue
-        colorEnd='hsl(var(--primary))' // Theme Purple
+        colorStart='hsl(220, 90%, 60%)' 
+        colorEnd='hsl(var(--primary))' 
       />
       <div
         className={cn(
