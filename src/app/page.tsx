@@ -23,6 +23,7 @@ declare global {
 }
 
 const MINIMIZED_SHEET_HEIGHT = '80px'; 
+const SWIPE_DOWN_THRESHOLD = 50; // Pixels
 
 export default function VideoScriptAIPage() {
   const [generateSheetState, setGenerateSheetState] = useState<GenerateSheetState>('minimized');
@@ -41,6 +42,10 @@ export default function VideoScriptAIPage() {
   
   const handleUserForceStopRef = useRef<() => void>(() => {});
   const handleSummarizeIdeaRef = useRef<(text: string) => Promise<void>> (async () => {});
+
+  const scriptSheetContentRef = useRef<HTMLDivElement>(null);
+  const touchStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
+
 
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
     setIsSummarizing(true);
@@ -327,6 +332,32 @@ export default function VideoScriptAIPage() {
     </div>
   );
 
+  const handleSheetTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (scriptSheetContentRef.current) {
+      touchStartRef.current = {
+        y: e.touches[0].clientY,
+        scrollTop: scriptSheetContentRef.current.scrollTop,
+      };
+    }
+  };
+
+  const handleSheetTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!touchStartRef.current || !scriptSheetContentRef.current) return;
+
+    const deltaY = e.touches[0].clientY - touchStartRef.current.y;
+
+    // If pulling down (deltaY > 0) and content is at the top
+    if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
+      setGenerateSheetState('minimized');
+      touchStartRef.current = null; // Reset after action
+    }
+  };
+
+  const handleSheetTouchEnd = () => {
+    touchStartRef.current = null;
+  };
+
+
   const renderGenerateSheet = () => {
     const isSheetContentDisabled = isActivelyListening || isSummarizing || isAttemptingToListen;
 
@@ -347,7 +378,7 @@ export default function VideoScriptAIPage() {
           >
             <ChevronUp className="h-6 w-6 text-muted-foreground mr-2" />
             <span className="text-lg font-medium text-foreground">
-              {generatedScript ? "View Script" : "Generate Script"}
+              Generate
             </span>
           </div>
         ) : (
@@ -359,13 +390,19 @@ export default function VideoScriptAIPage() {
               aria-label="Minimize script view"
             >
               <ChevronDown className="h-6 w-6 text-muted-foreground mr-2 absolute left-4 top-1/2 -translate-y-1/2 sm:left-6" />
-              <CardTitle className="text-xl sm:text-2xl font-semibold text-primary text-center flex-grow">Generated Video Script</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl font-semibold text-primary text-center flex-grow">Generate</CardTitle>
             </CardHeader>
-            <CardContent className="flex-grow p-4 sm:p-6 overflow-y-auto">
+            <CardContent 
+              ref={scriptSheetContentRef}
+              className="flex-grow p-4 sm:p-6 overflow-y-auto"
+              onTouchStart={handleSheetTouchStart}
+              onTouchMove={handleSheetTouchMove}
+              onTouchEnd={handleSheetTouchEnd}
+            >
               <Label htmlFor="generatedScriptArea" className="text-base font-medium mb-2 block text-muted-foreground">Your Script:</Label>
               <Textarea
                 id="generatedScriptArea"
-                value={generatedScript || (currentSummary ? "Click 'Generate Script' below to create your video script." : "Please describe your idea first on the screen above.")}
+                value={generatedScript || (currentSummary ? "Click 'Generate' below to create your video script." : "Please describe your idea first on the screen above.")}
                 readOnly
                 placeholder="Your generated script will appear here..."
                 className="w-full min-h-[200px] sm:min-h-[300px] text-base bg-background text-foreground shadow-sm whitespace-pre-wrap"
@@ -379,7 +416,7 @@ export default function VideoScriptAIPage() {
                 className="w-full gap-2 bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-3"
               >
                 {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />} 
-                Generate Script
+                Generate
               </Button>
             </div>
           </div>
@@ -435,3 +472,4 @@ export default function VideoScriptAIPage() {
     </main>
   );
 }
+
