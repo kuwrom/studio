@@ -82,11 +82,11 @@ export default function VideoScriptAIPage() {
     window.removeEventListener('touchend', handleUserForceStopRef.current);
 
     setIsMicButtonPressed(false); // Immediate visual feedback for visualizer
+    setIsActivelyListening(false); // Immediate visual feedback for "Listening..." text
 
     if (recognitionRef.current) {
       recognitionRef.current.stop(); // Use stop to allow onresult to fire
     }
-    // isActivelyListening will be set by onend/onerror
   }, []);
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export default function VideoScriptAIPage() {
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
         recognitionInstance.continuous = false;
-        recognitionInstance.interimResults = false; // We only care about the final result
+        recognitionInstance.interimResults = false;
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
@@ -191,7 +191,7 @@ export default function VideoScriptAIPage() {
       console.error("Error starting recognition:", error);
        if (error.name === 'InvalidStateError') {
           console.warn("SpeechRecognition InvalidStateError on start. Attempting to reset listening state.");
-          if (recognitionRef.current) { // Ensure ref is still valid
+          if (recognitionRef.current) { 
               recognitionRef.current.abort(); 
           }
       } else {
@@ -261,7 +261,7 @@ export default function VideoScriptAIPage() {
         onMouseDown={!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') ? handleMicButtonInteractionStart : undefined}
         onTouchStart={(e) => {
           if (!(isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded')) {
-            e.preventDefault(); // Prevent potential double tap zoom or other default touch behaviors
+            e.preventDefault(); 
             handleMicButtonInteractionStart();
           }
         }}
@@ -348,10 +348,9 @@ export default function VideoScriptAIPage() {
 
     const deltaY = e.touches[0].clientY - touchStartRef.current.y;
 
-    // Only minimize if swiping down significantly AND content is at the top
     if (deltaY > SWIPE_DOWN_THRESHOLD && touchStartRef.current.scrollTop === 0) {
       setGenerateSheetState('minimized');
-      touchStartRef.current = null; // Reset touch start data to prevent re-triggering
+      touchStartRef.current = null; 
     }
   };
 
@@ -378,7 +377,7 @@ export default function VideoScriptAIPage() {
             role="button"
             aria-label="Expand to view and generate script"
           >
-            <span className="text-lg font-medium text-foreground">
+            <span className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60">
               Generate
             </span>
           </div>
@@ -390,7 +389,7 @@ export default function VideoScriptAIPage() {
               role="button"
               aria-label="Minimize script view"
             >
-              <CardTitle className="text-xl sm:text-2xl font-semibold text-primary text-center flex-grow">Generate</CardTitle>
+              <CardTitle className="text-2xl sm:text-3xl font-normal text-muted-foreground opacity-60 text-center flex-grow">Generate</CardTitle>
             </CardHeader>
             <CardContent
               ref={scriptSheetContentRef}
