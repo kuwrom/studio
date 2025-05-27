@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     // Get the request body
     const body = await request.json();
-    const { contextSummary, videoForm, videoLength } = body;
+    const { contextSummary, fullContext, videoForm, videoLength } = body;
 
     if (!contextSummary) {
       return new Response('Context summary is required', { status: 400 });
@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
         // Stream the script chunks
         for await (const chunk of generateVideoScriptStream({
           contextSummary,
+          fullContext,
           videoForm,
           videoLength,
         })) {

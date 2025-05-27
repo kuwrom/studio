@@ -1,4 +1,3 @@
-
 'use server';
 
 /**
@@ -57,7 +56,7 @@ const fetchUrlContentTool = ai.defineTool(
       if (!textContent) {
         return { error: 'No meaningful text content found at the URL.' };
       }
-      return { content: textContent.substring(0, 5000) }; // Limit content length
+      return { content: textContent.substring(0, 15000) }; // Increased limit to capture more content
     } catch (error: any) {
       return { error: `Error fetching or parsing URL: ${error.message}` };
     }
@@ -73,15 +72,27 @@ const prompt = ai.definePrompt({
   input: {schema: SummarizeVideoIdeaInputSchema},
   output: {schema: SummarizeVideoIdeaOutputSchema},
   tools: [fetchUrlContentTool], // Make the tool available to the prompt
-  prompt: `You are an expert in understanding video ideas and summarizing them concisely.
+  prompt: `You are an expert in understanding video ideas and creating concise one-line summaries.
 
 User Input: {{{input}}}
 
 If the user's input contains a URL, use the 'fetchUrlContentTool' to retrieve the text content of that URL.
-Then, combine the user's original input and any relevant fetched URL content to provide a short summary of the video idea.
-This summary should be either a title for the video or a one-sentence context describing the video's topic.
-If fetching the URL fails, returns an error, or provides no meaningful content, summarize based on the user's input alone and briefly mention that the URL could not be fully processed.
-Ensure the final summary is concise and directly reflects the core idea. If you cannot determine a summary, ensure the summary field in your output is explicitly empty or not present.`,
+Then, combine the user's original input and any relevant fetched URL content to create a ONE-LINE summary.
+
+IMPORTANT: The summary must be:
+- EXACTLY ONE LINE (no line breaks)
+- Maximum 100 characters
+- A clear, concise title or topic statement
+- Not a full sentence description, just a brief topic/title
+
+Examples of good summaries:
+- "React Tutorial for Beginners"
+- "How to Build a Mobile App"
+- "5 Tips for Better Sleep"
+- "Machine Learning Explained"
+
+If fetching the URL fails or provides no meaningful content, create the summary based on the user's input alone.
+If you cannot determine a summary, ensure the summary field in your output is explicitly empty or not present.`,
 });
 
 const summarizeVideoIdeaFlow = ai.defineFlow(

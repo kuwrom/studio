@@ -162,11 +162,17 @@ export function useVideoScriptLogic() {
 
   // Summarize idea function
   const handleSummarizeIdea = useCallback(async (newIdeaChunk: string) => {
+    console.log("=== handleSummarizeIdea called ===");
+    console.log("Input chunk:", newIdeaChunk);
+    console.log("Current activeConversationId:", activeConversationId);
+    
     let textThatWillBeSummarized: string;
   
     if (newIdeaChunk.trim()) {
-      setActiveConversationId(null);
-      setGeneratedScript('');
+      // If we have an active conversation, we should update it, not create a new one
+      if (!activeConversationId) {
+        setGeneratedScript('');
+      }
       setHasExplicitlyReset(false);
       textThatWillBeSummarized = fullConversationTextRef.current
         ? `${fullConversationTextRef.current}\n\n${newIdeaChunk}`
@@ -175,6 +181,7 @@ export function useVideoScriptLogic() {
       textThatWillBeSummarized = fullConversationTextRef.current;
     }
     
+    console.log("Text to summarize:", textThatWillBeSummarized);
     setFullConversationText(textThatWillBeSummarized);
   
     if (!textThatWillBeSummarized.trim()) {
@@ -183,17 +190,34 @@ export function useVideoScriptLogic() {
       return;
     }
     
+    console.log("Starting summarization...");
     setIsSummarizing(true);
     try {
       const result = await summarizeVideoIdea({ input: textThatWillBeSummarized });
-      setCurrentSummary(result.summary || "Could not get a summary. Try rephrasing or adding more details.");
+      console.log("Summarization result:", result);
+      const newSummary = result.summary || "Could not get a summary. Try rephrasing or adding more details.";
+      setCurrentSummary(newSummary);
+      
+      // If we have an active conversation and a valid summary, update it
+      if (activeConversationId && user && newSummary && generatedScript) {
+        console.log("Updating existing conversation");
+        await saveOrUpdateConversation(
+          user.uid,
+          newSummary,
+          generatedScript,
+          textThatWillBeSummarized,
+          activeConversationId
+        );
+        await fetchConversationsCallback();
+      }
     } catch (error) {
       console.error('Error summarizing idea:', error);
       setCurrentSummary('Failed to get summary. Please try again.');
     } finally {
+      console.log("Summarization complete");
       setIsSummarizing(false);
     }
-  }, [setFullConversationText, setCurrentSummary, setActiveConversationId, setGeneratedScript, setIsSummarizing]);
+  }, [activeConversationId, generatedScript, user, fetchConversationsCallback]);
 
   // Update ref when callback changes
   useEffect(() => {
@@ -202,24 +226,30 @@ export function useVideoScriptLogic() {
 
   // Force stop speech recognition
   const handleUserForceStop = useCallback(() => {
-    // Remove all event listeners
-    window.removeEventListener('mouseup', handleUserForceStopRef.current);
-    window.removeEventListener('touchend', handleUserForceStopRef.current);
-    window.removeEventListener('mouseleave', handleUserForceStopRef.current);
-    window.removeEventListener('contextmenu', handleUserForceStopRef.current);
+    console.log("=== FORCE STOP CALLED ===");
+    
+    // Remove all possible event listeners
+    const handleStop = handleUserForceStopRef.current;
+    if (handleStop && typeof handleStop === 'function') {
+      window.removeEventListener('mouseup', handleStop);
+      window.removeEventListener('touchend', handleStop);
+      document.removeEventListener('mouseup', handleStop);
+      document.removeEventListener('touchend', handleStop);
+    }
     
     // Reset all states
+    isRecognitionActiveRef.current = false;
     setIsMicButtonPressed(false);
     setIsActivelyListening(false);
     setIsAttemptingToListen(false);
-    isRecognitionActiveRef.current = false;
 
     // Stop recognition if it's running
     if (recognitionRef.current) {
       try {
-        recognitionRef.current.abort(); // Use abort instead of stop for immediate termination
+        recognitionRef.current.stop();
+        console.log("Recognition stopped");
       } catch (error) {
-        console.log("Recognition already stopped");
+        console.log("Recognition already stopped or error:", error);
       }
     }
   }, []);
@@ -233,6 +263,8 @@ export function useVideoScriptLogic() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+      console.log("SpeechRecognitionAPI available:", !!SpeechRecognitionAPI);
+      
       if (SpeechRecognitionAPI) {
         const recognitionInstance = new SpeechRecognitionAPI();
         recognitionInstance.continuous = false;
@@ -240,41 +272,82 @@ export function useVideoScriptLogic() {
         recognitionInstance.lang = 'en-US';
 
         recognitionInstance.onstart = () => {
-          console.log("Speech recognition started");
+          console.log("=== Speech recognition STARTED ===");
           setIsActivelyListening(true);
           setIsAttemptingToListen(false);
           isRecognitionActiveRef.current = true;
         };
 
         recognitionInstance.onresult = async (event) => {
+          console.log("=== Speech recognition RESULT ===");
+          console.log("Results length:", event.results.length);
+          
           let transcript = '';
           if (event.results && event.results[0] && event.results[0][0]) {
             transcript = event.results[0][0].transcript;
+            console.log("Transcript:", transcript);
+            console.log("Confidence:", event.results[0][0].confidence);
           }
-          console.log("Speech result:", transcript);
           
-          // Immediately stop listening after getting result
-          handleUserForceStopRef.current();
-          
-          // Then process the transcript
-          if (transcript) {
+          // Process the transcript
+          if (transcript && transcript.trim()) {
+            console.log("Processing transcript...");
+            // First stop the recognition
+            handleUserForceStopRef.current();
+            // Then process
             await handleSummarizeIdeaRef.current(transcript);
+          } else {
+            console.log("No valid transcript received");
+            handleUserForceStopRef.current();
           }
         };
 
         recognitionInstance.onerror = (event) => {
-          console.log("Speech recognition error:", event.error);
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
-             console.error('Speech recognition error', event.error);
+          console.log("=== Speech recognition ERROR ===", event.error);
+          
+          switch (event.error) {
+            case 'no-speech':
+              console.log("No speech detected");
+              break;
+            case 'aborted':
+              console.log("Recognition aborted");
+              break;
+            case 'not-allowed':
+              console.error('Microphone access denied');
+              toast({
+                title: 'Microphone Access Required',
+                description: 'Please allow microphone access in your browser settings to use voice input.',
+                variant: 'destructive',
+              });
+              break;
+            case 'network':
+              console.error('Network error');
+              toast({
+                title: 'Network Error',
+                description: 'Please check your internet connection and try again.',
+                variant: 'destructive',
+              });
+              break;
+            default:
+              console.error('Speech recognition error:', event.error);
+              toast({
+                title: 'Speech Recognition Error',
+                description: `An error occurred: ${event.error}`,
+                variant: 'destructive',
+              });
           }
+          
           handleUserForceStopRef.current();
         };
 
         recognitionInstance.onend = () => {
-          console.log("Speech recognition ended");
+          console.log("=== Speech recognition ENDED ===");
           handleUserForceStopRef.current();
         };
         recognitionRef.current = recognitionInstance;
+        console.log("Speech recognition initialized successfully");
+      } else {
+        console.error("Speech Recognition API not available in this browser");
       }
     }
     return () => { 
@@ -295,64 +368,115 @@ export function useVideoScriptLogic() {
     const currentInput = videoIdeaInput.trim();
     if (currentInput) {
       setVideoIdeaInput('');
+      // Pass true to preserve active conversation if one is selected
       await handleSummarizeIdea(currentInput);
     }
   };
 
   // Handle mic button interaction start
-  const handleMicButtonInteractionStart = () => {
+  const handleMicButtonInteractionStart = async () => {
+    console.log("=== PUSH TO TALK START ===");
+    console.log("1. recognitionRef.current exists:", !!recognitionRef.current);
+    console.log("2. Current states:", {
+      isRecognitionActiveRef: isRecognitionActiveRef.current,
+      isAttemptingToListen,
+      isActivelyListening,
+      isSummarizing,
+      generateSheetState
+    });
+    
     if (!recognitionRef.current) {
-      console.log("No speech recognition available");
+      console.error("No speech recognition available - API not initialized");
+      alert("Speech recognition not available in this browser");
       return;
     }
     
-    // Check if we should allow starting
-    if (isRecognitionActiveRef.current || isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded') {
-      console.log("Cannot start - already in progress or disabled");
+    // Simplified check - only prevent if already active
+    if (isRecognitionActiveRef.current) {
+      console.log("Recognition already active, skipping");
+      return;
+    }
+
+    // Prevent starting if sheet is expanded
+    if (generateSheetState === 'expanded') {
+      console.log("Cannot start - sheet is expanded");
       return;
     }
 
     try {
-      console.log("Starting speech recognition");
+      // Request microphone permission first
+      console.log("3. Requesting microphone permission...");
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Stop the stream immediately - we just needed to request permission
+        stream.getTracks().forEach(track => track.stop());
+        console.log("Microphone permission granted");
+      } catch (permissionError) {
+        console.error("Microphone permission denied:", permissionError);
+        alert("Please allow microphone access to use voice input");
+        return;
+      }
+      
+      console.log("4. Setting up recognition...");
+      
+      // Set flags immediately
+      isRecognitionActiveRef.current = true;
       setIsAttemptingToListen(true);
       setIsMicButtonPressed(true);
       
-      // Add multiple event listeners to ensure we catch the release
-      const stopListening = () => {
-        console.log("Stop event triggered");
-        handleUserForceStopRef.current();
-      };
-      
-      window.addEventListener('mouseup', stopListening);
-      window.addEventListener('touchend', stopListening);
-      window.addEventListener('mouseleave', stopListening);
-      window.addEventListener('contextmenu', stopListening); // Right-click also stops
-      
-      // Update the ref to use our local stopListening function
-      handleUserForceStopRef.current = () => {
-        window.removeEventListener('mouseup', stopListening);
-        window.removeEventListener('touchend', stopListening);
-        window.removeEventListener('mouseleave', stopListening);
-        window.removeEventListener('contextmenu', stopListening);
+      // Setup stop handler
+      const handleStop = (e?: Event) => {
+        console.log("=== STOP TRIGGERED ===");
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         
+        // Clean up all listeners
+        window.removeEventListener('mouseup', handleStop);
+        window.removeEventListener('touchend', handleStop);
+        document.removeEventListener('mouseup', handleStop);
+        document.removeEventListener('touchend', handleStop);
+        
+        // Reset states
+        isRecognitionActiveRef.current = false;
         setIsMicButtonPressed(false);
         setIsActivelyListening(false);
         setIsAttemptingToListen(false);
-        isRecognitionActiveRef.current = false;
-
+        
+        // Stop recognition
         if (recognitionRef.current) {
           try {
-            recognitionRef.current.abort();
+            console.log("5. Stopping recognition");
+            recognitionRef.current.stop();
           } catch (error) {
-            console.log("Recognition already stopped");
+            console.log("Recognition stop error:", error);
           }
         }
       };
       
+      // Add listeners to both window and document to ensure we catch the event
+      window.addEventListener('mouseup', handleStop);
+      window.addEventListener('touchend', handleStop);
+      document.addEventListener('mouseup', handleStop);
+      document.addEventListener('touchend', handleStop);
+      
+      // Store the handler for external access
+      handleUserForceStopRef.current = handleStop;
+      
+      // Start recognition
+      console.log("6. Starting recognition...");
       recognitionRef.current.start();
+      
     } catch (error: any) {
-      console.error("Error starting recognition:", error);
-      handleUserForceStopRef.current();
+      console.error("Error in handleMicButtonInteractionStart:", error);
+      alert(`Error starting speech recognition: ${error.message}`);
+      
+      // Clean up on error
+      isRecognitionActiveRef.current = false;
+      setIsMicButtonPressed(false);
+      setIsActivelyListening(false);
+      setIsAttemptingToListen(false);
     }
   };
 
@@ -378,7 +502,6 @@ export function useVideoScriptLogic() {
     
     // Clear existing script immediately for reactive generation
     setGeneratedScript('');
-    setActiveConversationId(null);
     setIsGeneratingScript(true);
     
     let summaryForScript = currentSummary;
@@ -416,6 +539,7 @@ export function useVideoScriptLogic() {
         },
         body: JSON.stringify({
           contextSummary: summaryForScript,
+          fullContext: fullConversationTextRef.current,
           videoForm: activeVideoForm,
           videoLength: activeVideoLengthLabel,
         }),
@@ -452,10 +576,10 @@ export function useVideoScriptLogic() {
         summaryForScript, 
         accumulatedScript, 
         fullConversationTextRef.current, 
-        null // Always create new conversation for reactive generation
+        activeConversationId // Use existing conversation ID if available
       );
       setActiveConversationId(savedId); 
-      await fetchConversationsCallback(); 
+      await fetchConversationsCallback();
       
     } catch (error: any) {
       if (error.name === 'AbortError') {

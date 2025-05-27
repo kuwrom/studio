@@ -16,6 +16,10 @@ const GenerateVideoScriptInputSchema = z.object({
   contextSummary: z
     .string()
     .describe('A short summary (title or one-sentence context) of the video idea.'),
+  fullContext: z
+    .string()
+    .optional()
+    .describe('The full conversation history including all user inputs, fetched URL content, and detailed descriptions.'),
   videoForm: z.enum(['long-form', 'short-form']).optional().describe("The desired form of the video, e.g., 'long-form' for detailed content or 'short-form' for concise, punchy content like for TikTok or YouTube Shorts."),
   videoLength: z.string().optional().describe("The desired length of the video, typically a label describing a minute range (e.g., 'Short (1-3 mins)', 'Medium (3-5 mins)', 'Very Long (10+ mins)'). The AI will adapt the script based on this description.")
 });
@@ -40,7 +44,7 @@ Write a natural, conversational script that someone can read while recording the
     prompt,
     config: {
       temperature: 0.8,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
     }
   });
 
@@ -65,7 +69,7 @@ Write a natural, conversational script that someone can read while recording the
     prompt,
     config: {
       temperature: 0.8,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
     }
   });
 

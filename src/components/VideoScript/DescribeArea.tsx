@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { CardHeader, CardTitle } from '@/components/ui/card';
-import { Send, RotateCcw } from 'lucide-react';
+import { Send, RotateCcw, Mic } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GenerateSheetState } from '@/hooks/useVideoScriptLogic';
 
@@ -32,6 +32,14 @@ export function DescribeArea({
   handleNewIdea,
 }: DescribeAreaProps) {
   const isDisabled = isAttemptingToListen || isActivelyListening || isSummarizing || generateSheetState === 'expanded';
+  
+  console.log("DescribeArea isDisabled conditions:", {
+    isAttemptingToListen,
+    isActivelyListening,
+    isSummarizing,
+    generateSheetState,
+    isDisabled
+  });
 
   return (
     <div className="flex-grow flex flex-col p-4 sm:p-6 bg-transparent relative h-full">
@@ -55,17 +63,22 @@ export function DescribeArea({
           "flex-grow flex flex-col items-center justify-center text-center min-h-[200px] sm:min-h-[300px] select-none",
           !isDisabled && "cursor-pointer"
         )} 
+        style={{
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
+          userSelect: 'none',
+        }}
         onMouseDown={(e) => {
-          if (!isDisabled) {
+          console.log("onMouseDown triggered, isDisabled:", isDisabled);
+          if (!isDisabled && e.button === 0) { // Only left click
             e.preventDefault();
             handleMicButtonInteractionStart();
           }
         }}
         onTouchStart={(e) => {
+          console.log("onTouchStart triggered, isDisabled:", isDisabled);
           if (!isDisabled) {
             e.preventDefault();
-            // Prevent the touch from triggering mouse events
-            e.stopPropagation();
             handleMicButtonInteractionStart();
           }
         }}
@@ -79,6 +92,11 @@ export function DescribeArea({
         <div
           id="aiSummaryDisplay"
           className="w-full p-3 rounded-md flex flex-col items-center justify-center text-center"
+          style={{
+            WebkitUserSelect: 'none',
+            WebkitTouchCallout: 'none',
+            userSelect: 'none',
+          }}
           aria-live="polite"
         >
           {(() => {
@@ -96,11 +114,16 @@ export function DescribeArea({
               return <span className={cn(baseTextClasses, gradientTextClasses)}>{currentSummary}</span>;
             }
             return (
-              <span className={cn(baseTextClasses, placeholderTextClasses)}>
-                Tap anywhere to speak
-                <br />
-                or type your idea below.
-              </span>
+              <div className={cn(baseTextClasses, placeholderTextClasses)}>
+                <div className="flex flex-col items-center gap-2">
+                  <Mic className="h-8 w-8 opacity-50" />
+                  <span>
+                    Tap anywhere to speak
+                    <br />
+                    or type your idea below.
+                  </span>
+                </div>
+              </div>
             );
           })()}
         </div>

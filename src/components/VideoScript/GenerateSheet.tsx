@@ -278,6 +278,11 @@ export function GenerateSheet({
                 {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
                 Generate
               </Button>
+              {fullConversationTextRef.current && (
+                <p className="text-xs text-muted-foreground text-center mt-2">
+                  Using full context including all details and links
+                </p>
+              )}
             </div>
           </div>
         )}

@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { User } from 'firebase/auth';
@@ -13,9 +12,6 @@ import {
   type AuthError
 } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
 import { Chrome, Mail } from 'lucide-react';
 
@@ -130,19 +126,12 @@ export const useAuth = () => {
 };
 
 export const SignInScreen = () => {
-  const { signInWithGoogle, signUpWithEmail, signInWithEmail, loading: authLoading } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { signInWithGoogle, signInWithEmail, loading: authLoading } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>, type: 'signin' | 'signup') => {
-    event.preventDefault();
+  const handleTesterSignIn = async () => {
     setIsSubmitting(true);
-    if (type === 'signin') {
-      await signInWithEmail(email, password);
-    } else {
-      await signUpWithEmail(email, password);
-    }
+    await signInWithEmail('test@test.com', '123456');
     setIsSubmitting(false);
   };
 
@@ -151,95 +140,27 @@ export const SignInScreen = () => {
       <Card className="w-full max-w-sm shadow-xl">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Welcome to Storyy script generator</CardTitle>
-          <CardDescription>Sign in or create an account to continue</CardDescription>
+          <CardDescription>Sign in to continue</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
           <Button 
             onClick={signInWithGoogle} 
             disabled={authLoading || isSubmitting} 
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+            size="lg"
           >
-            <Chrome className="mr-2 h-5 w-5" /> Sign in with Google
+            <Chrome className="h-5 w-5" /> Sign in with Google
           </Button>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                Or continue with email
-              </span>
-            </div>
-          </div>
-          
-          <Tabs defaultValue="signin" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
-            <TabsContent value="signin">
-              <form onSubmit={(e) => handleEmailSubmit(e, 'signin')} className="space-y-4 pt-4">
-                <div className="space-y-1">
-                  <Label htmlFor="signin-email">Email</Label>
-                  <Input 
-                    id="signin-email" 
-                    type="email" 
-                    placeholder="m@example.com" 
-                    value={email} 
-                    onChange={(e) => setEmail(e.target.value)} 
-                    required 
-                    disabled={authLoading || isSubmitting}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="signin-password">Password</Label>
-                  <Input 
-                    id="signin-password" 
-                    type="password" 
-                    value={password} 
-                    onChange={(e) => setPassword(e.target.value)} 
-                    required 
-                    disabled={authLoading || isSubmitting}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={authLoading || isSubmitting}>
-                  {(authLoading || isSubmitting) ? 'Processing...' : 'Sign In'}
-                </Button>
-              </form>
-            </TabsContent>
-            <TabsContent value="signup">
-              <form onSubmit={(e) => handleEmailSubmit(e, 'signup')} className="space-y-4 pt-4">
-                <div className="space-y-1">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input 
-                    id="signup-email" 
-                    type="email" 
-                    placeholder="m@example.com" 
-                    value={email} 
-                    onChange={(e) => setEmail(e.target.value)} 
-                    required 
-                    disabled={authLoading || isSubmitting}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input 
-                    id="signup-password" 
-                    type="password" 
-                    placeholder="Must be 6+ characters"
-                    value={password} 
-                    onChange={(e) => setPassword(e.target.value)} 
-                    required 
-                    disabled={authLoading || isSubmitting}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={authLoading || isSubmitting}>
-                  {(authLoading || isSubmitting) ? 'Processing...' : 'Create Account'}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
+          <Button 
+            onClick={handleTesterSignIn} 
+            disabled={authLoading || isSubmitting} 
+            className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2"
+            variant="secondary"
+            size="lg"
+          >
+            <Mail className="h-5 w-5" /> Sign in as Tester
+          </Button>
         </CardContent>
       </Card>
     </div>
