@@ -29,15 +29,12 @@ export type GenerateVideoScriptOutput = z.infer<typeof GenerateVideoScriptOutput
 
 // Streaming function that returns an async generator
 export async function* generateVideoScriptStream(input: GenerateVideoScriptInput) {
-  const prompt = `You are an expert video script writer. Based on the following context, generate a full video script.
+  const prompt = `Create a video script about: ${input.contextSummary}
 
-Context: ${input.contextSummary}
+Video type: ${input.videoForm || 'long-form'}
+Target length: ${input.videoLength || 'Medium (3-5 mins)'}
 
-Please consider the following preferences for the video:
-- Video Form: ${input.videoForm || 'long-form'} (If 'short-form', prioritize conciseness and a hook suitable for platforms like TikTok or YouTube Shorts. If 'long-form', allow for more detail and depth.)
-- Desired Length: ${input.videoLength || 'Medium (3-5 mins)'} (Adapt the script's depth and number of scenes. For example, if the desired length is 'Short (1-3 mins)', aim for content that fits that duration. If 'Very Long (10+ mins)', create a more extensive script.)
-
-Provide a detailed and engaging video script suitable for the specified form and length.`;
+Write a natural, conversational script that someone can read while recording their video. Output only the script itself - no introductions, explanations, or closing notes.`;
 
   const { stream } = await ai.generateStream({
     prompt,
@@ -57,15 +54,12 @@ Provide a detailed and engaging video script suitable for the specified form and
 
 // Keep the non-streaming version for backward compatibility
 export async function generateVideoScript(input: GenerateVideoScriptInput): Promise<GenerateVideoScriptOutput> {
-  const prompt = `You are an expert video script writer. Based on the following context, generate a full video script.
+  const prompt = `Create a video script about: ${input.contextSummary}
 
-Context: ${input.contextSummary}
+Video type: ${input.videoForm || 'long-form'}
+Target length: ${input.videoLength || 'Medium (3-5 mins)'}
 
-Please consider the following preferences for the video:
-- Video Form: ${input.videoForm || 'long-form'} (If 'short-form', prioritize conciseness and a hook suitable for platforms like TikTok or YouTube Shorts. If 'long-form', allow for more detail and depth.)
-- Desired Length: ${input.videoLength || 'Medium (3-5 mins)'} (Adapt the script's depth and number of scenes. For example, if the desired length is 'Short (1-3 mins)', aim for content that fits that duration. If 'Very Long (10+ mins)', create a more extensive script.)
-
-Provide a detailed and engaging video script suitable for the specified form and length.`;
+Write a natural, conversational script that someone can read while recording their video. Output only the script itself - no introductions, explanations, or closing notes.`;
 
   const { text } = await ai.generate({
     prompt,

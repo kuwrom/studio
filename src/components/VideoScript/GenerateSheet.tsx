@@ -7,6 +7,7 @@ import { GenerateSheetState } from '@/hooks/useVideoScriptLogic';
 import { IdeaConfiguration } from './IdeaConfiguration';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Conversation } from '@/services/conversationService';
+import { ScriptDisplay } from './ScriptDisplay';
 
 const MINIMIZED_HEIGHT = 80;
 const EXPANDED_HEIGHT = 0.9; // 90% of viewport
@@ -207,8 +208,12 @@ export function GenerateSheet({
                     <CardTitle className="text-lg">{currentSummary || "New Idea In Progress"}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap p-3 rounded-md border border-input min-h-[80px] relative">
-                      {generatedScript || (isGeneratingScript ? "" : <span className="text-muted-foreground">Script will appear here after generation.</span>)}
+                    <div className="w-full text-base bg-background text-foreground shadow-sm p-3 rounded-md border border-input min-h-[80px] relative">
+                      {generatedScript ? (
+                        <ScriptDisplay content={generatedScript} />
+                      ) : (
+                        isGeneratingScript ? "" : <span className="text-muted-foreground">Script will appear here after generation.</span>
+                      )}
                       {isGeneratingScript && (
                         <span className="inline-flex">
                           <span className="animate-pulse">▊</span>
@@ -242,17 +247,21 @@ export function GenerateSheet({
                     <CardTitle className="text-lg">{convo.summary}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    <div className="text-sm text-muted-foreground">
                       {activeConversationId === convo.id ? (
                         <>
-                          {convo.script}
+                          <ScriptDisplay content={convo.script} />
                           {isGeneratingScript && (
                             <span className="inline-flex">
                               <span className="animate-pulse">▊</span>
                             </span>
                           )}
                         </>
-                      ) : getScriptPreview(convo.script)}
+                      ) : (
+                        <div className="line-clamp-2">
+                          <ScriptDisplay content={getScriptPreview(convo.script)} />
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
