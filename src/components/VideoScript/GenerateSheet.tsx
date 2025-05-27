@@ -68,11 +68,11 @@ export function GenerateSheet({
   const isSheetContentDisabled = isActivelyListening || isSummarizing || isAttemptingToListen;
 
   // Auto-expand when no content
-  useEffect(() => {
-    if (!isLoadingHistory && conversations.length === 0 && !activeConversationId && !currentSummary && !generatedScript) {
-      setGenerateSheetState('expanded');
-    }
-  }, [isLoadingHistory, conversations.length, activeConversationId, currentSummary, generatedScript, setGenerateSheetState]);
+  // useEffect(() => {
+  //   if (!isLoadingHistory && conversations.length === 0 && !activeConversationId && !currentSummary && !generatedScript) {
+  //     setGenerateSheetState('expanded');
+  //   }
+  // }, [isLoadingHistory, conversations.length, activeConversationId, currentSummary, generatedScript, setGenerateSheetState]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.target instanceof Element && e.target.closest('[data-scrollable]')) {
@@ -207,8 +207,13 @@ export function GenerateSheet({
                     <CardTitle className="text-lg">{currentSummary || "New Idea In Progress"}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap p-3 rounded-md border border-input min-h-[80px]">
-                      {generatedScript || <span className="text-muted-foreground">Script will appear here after generation.</span>}
+                    <div className="w-full text-base bg-background text-foreground shadow-sm whitespace-pre-wrap p-3 rounded-md border border-input min-h-[80px] relative">
+                      {generatedScript || (isGeneratingScript ? "" : <span className="text-muted-foreground">Script will appear here after generation.</span>)}
+                      {isGeneratingScript && (
+                        <span className="inline-flex">
+                          <span className="animate-pulse">▊</span>
+                        </span>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -238,7 +243,16 @@ export function GenerateSheet({
                   </CardHeader>
                   <CardContent>
                     <div className="text-sm text-muted-foreground whitespace-pre-wrap">
-                      {activeConversationId === convo.id ? convo.script : getScriptPreview(convo.script)}
+                      {activeConversationId === convo.id ? (
+                        <>
+                          {convo.script}
+                          {isGeneratingScript && (
+                            <span className="inline-flex">
+                              <span className="animate-pulse">▊</span>
+                            </span>
+                          )}
+                        </>
+                      ) : getScriptPreview(convo.script)}
                     </div>
                   </CardContent>
                 </Card>
@@ -250,7 +264,7 @@ export function GenerateSheet({
               <Button
                 onClick={handleGenerateScript}
                 disabled={isGeneratingScript || isSheetContentDisabled || (!currentSummary.trim() && !fullConversationTextRef.current?.trim())}
-                className="w-full gap-2 bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-3"
+                className="w-full gap-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-lg py-3"
               >
                 {isGeneratingScript ? <Mic className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
                 Generate

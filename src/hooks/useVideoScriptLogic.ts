@@ -26,9 +26,9 @@ interface SpeechRecognitionEvent extends Event {
   resultIndex: number;
 }
 
-interface SpeechRecognitionErrorEvent extends Event {
+interface SpeechRecognitionError extends Event {
   error: string;
-  message: string;
+  message?: string;
 }
 
 interface SpeechRecognition extends EventTarget {
@@ -40,26 +40,30 @@ interface SpeechRecognition extends EventTarget {
   abort(): void;
   onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
   onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
-  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
+  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionError) => any) | null;
   onend: ((this: SpeechRecognition, ev: Event) => any) | null;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  [index: number]: SpeechRecognitionResult;
 }
 
 declare global {
   interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-    webkitAudioContext: typeof AudioContext;
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
   }
-
-  var SpeechRecognition: {
-    prototype: SpeechRecognition;
-    new(): SpeechRecognition;
-  };
-
-  var webkitSpeechRecognition: {
-    prototype: SpeechRecognition;
-    new(): SpeechRecognition;
-  };
 }
 
 export function useVideoScriptLogic() {
@@ -89,6 +93,7 @@ export function useVideoScriptLogic() {
   // Conversation management
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [hasExplicitlyReset, setHasExplicitlyReset] = useState(false);
 
   // Video configuration
   const [activeVideoForm, setActiveVideoForm] = useState<'long-form' | 'short-form'>('long-form');
@@ -100,6 +105,9 @@ export function useVideoScriptLogic() {
   const handleSummarizeIdeaRef = useRef<(text: string) => Promise<void>>(async () => {});
   const handleUserForceStopRef = useRef<() => void>(() => {});
   const isRecognitionActiveRef = useRef(false);
+
+  // Add abort controller ref for streaming
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Update fullConversationTextRef when state changes
   useEffect(() => {
@@ -121,7 +129,8 @@ export function useVideoScriptLogic() {
     try {
       const convos = await getConversations(user.uid);
       setConversations(convos);
-      if (!activeConversationId && convos.length > 0 && !fullConversationTextRef.current && !currentSummary && !generatedScript) {
+      // Only auto-load the most recent conversation if the user hasn't explicitly reset
+      if (!hasExplicitlyReset && !activeConversationId && convos.length > 0 && !fullConversationTextRef.current && !currentSummary && !generatedScript) {
         const mostRecentConvo = convos.sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)[0];
         if (mostRecentConvo) {
             setActiveConversationId(mostRecentConvo.id);
@@ -135,7 +144,7 @@ export function useVideoScriptLogic() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [user, activeConversationId, generatedScript, currentSummary]);
+  }, [user, activeConversationId, generatedScript, currentSummary, hasExplicitlyReset]);
 
   // Always fetch conversations when user is available and we navigate to generate page
   useEffect(() => {
@@ -158,6 +167,7 @@ export function useVideoScriptLogic() {
     if (newIdeaChunk.trim()) {
       setActiveConversationId(null);
       setGeneratedScript('');
+      setHasExplicitlyReset(false);
       textThatWillBeSummarized = fullConversationTextRef.current
         ? `${fullConversationTextRef.current}\n\n${newIdeaChunk}`
         : newIdeaChunk;
@@ -346,10 +356,15 @@ export function useVideoScriptLogic() {
     }
   };
 
-  // Handle script generation
+  // Handle script generation with streaming
   const handleGenerateScript = async () => {
     if (!user) {
       return;
+    }
+
+    // Cancel any existing generation
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
 
     let ideaToUseForScript = currentSummary || fullConversationTextRef.current.trim();
@@ -360,7 +375,12 @@ export function useVideoScriptLogic() {
     if (!ideaToUseForScript) {
       return;
     }
+    
+    // Clear existing script immediately for reactive generation
+    setGeneratedScript('');
+    setActiveConversationId(null);
     setIsGeneratingScript(true);
+    
     let summaryForScript = currentSummary;
 
     if (!summaryForScript && fullConversationTextRef.current.trim()) {
@@ -385,24 +405,83 @@ export function useVideoScriptLogic() {
     }
 
     try {
-      const result = await generateVideoScript({ 
-        contextSummary: summaryForScript,
-        videoForm: activeVideoForm,
-        videoLength: activeVideoLengthLabel,
-      });
-      const newScript = result.script || '';
-      setGeneratedScript(newScript);
+      // Create new abort controller for this generation
+      abortControllerRef.current = new AbortController();
       
-      const savedId = await saveOrUpdateConversation(user.uid, summaryForScript, newScript, fullConversationTextRef.current, activeConversationId || undefined);
+      // Call the streaming API
+      const response = await fetch('/api/generate-script/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contextSummary: summaryForScript,
+          videoForm: activeVideoForm,
+          videoLength: activeVideoLengthLabel,
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No reader available');
+      }
+
+      const decoder = new TextDecoder();
+      let accumulatedScript = '';
+
+      // Read the stream
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedScript += chunk;
+        
+        // Update the script in real-time as chunks arrive
+        setGeneratedScript(accumulatedScript);
+      }
+
+      // Save the completed script
+      const savedId = await saveOrUpdateConversation(
+        user.uid, 
+        summaryForScript, 
+        accumulatedScript, 
+        fullConversationTextRef.current, 
+        null // Always create new conversation for reactive generation
+      );
       setActiveConversationId(savedId); 
       await fetchConversationsCallback(); 
       
-    } catch (error) {
-      console.error('Error generating or saving script:', error);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Script generation was cancelled');
+      } else {
+        console.error('Error generating or saving script:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to generate script. Please try again.',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setIsGeneratingScript(false);
+      abortControllerRef.current = null;
     }
   };
+
+  // Clean up abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   // Handle new idea
   const handleNewIdea = () => {
@@ -413,6 +492,7 @@ export function useVideoScriptLogic() {
     setVideoIdeaInput('');
     setActiveVideoForm('long-form');
     setActiveVideoLengthValue(defaultVideoLengthValue);
+    setHasExplicitlyReset(true);
     if (generateSheetState === 'expanded') {
         setGenerateSheetState('minimized');
     }
@@ -426,6 +506,7 @@ export function useVideoScriptLogic() {
     setFullConversationText(conversation.fullConversation || conversation.summary);
     setActiveConversationId(conversation.id);
     setVideoIdeaInput('');
+    setHasExplicitlyReset(false);
 
     try {
       await updateLastOpened(user.uid, conversation.id);
