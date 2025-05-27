@@ -198,17 +198,35 @@ export function useVideoScriptLogic() {
       const newSummary = result.summary || "Could not get a summary. Try rephrasing or adding more details.";
       setCurrentSummary(newSummary);
       
-      // If we have an active conversation and a valid summary, update it
-      if (activeConversationId && user && newSummary && generatedScript) {
-        console.log("Updating existing conversation");
-        await saveOrUpdateConversation(
-          user.uid,
-          newSummary,
-          generatedScript,
-          textThatWillBeSummarized,
-          activeConversationId
-        );
-        await fetchConversationsCallback();
+      // Save to Firebase immediately after getting a summary
+      if (user && newSummary) {
+        console.log("Saving to Firebase...");
+        try {
+          const savedId = await saveOrUpdateConversation(
+            user.uid,
+            newSummary,
+            generatedScript || '', // Empty script if none exists yet
+            textThatWillBeSummarized,
+            activeConversationId // Will create new if null
+          );
+          
+          // If this was a new conversation, set it as active
+          if (!activeConversationId) {
+            console.log("Created new conversation with ID:", savedId);
+            setActiveConversationId(savedId);
+          } else {
+            console.log("Updated existing conversation:", savedId);
+          }
+          
+          await fetchConversationsCallback();
+        } catch (saveError) {
+          console.error('Error saving conversation:', saveError);
+          toast({
+            title: 'Error',
+            description: 'Failed to save conversation. Please try again.',
+            variant: 'destructive',
+          });
+        }
       }
     } catch (error) {
       console.error('Error summarizing idea:', error);
@@ -217,7 +235,7 @@ export function useVideoScriptLogic() {
       console.log("Summarization complete");
       setIsSummarizing(false);
     }
-  }, [activeConversationId, generatedScript, user, fetchConversationsCallback]);
+  }, [activeConversationId, generatedScript, user, fetchConversationsCallback, toast]);
 
   // Update ref when callback changes
   useEffect(() => {

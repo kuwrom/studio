@@ -184,11 +184,7 @@ export function GenerateSheet({
               className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
               data-scrollable="true"
             >
-              {isLoadingHistory && (
-                <p className="text-muted-foreground text-center">Loading history...</p>
-              )}
-              
-              {!isLoadingHistory && conversations.length === 0 && !activeConversationId && !currentSummary && !generatedScript && (
+              {conversations.length === 0 && !activeConversationId && !currentSummary && !generatedScript && (
                 <p className="text-muted-foreground text-center">
                   No past scripts found. Describe your idea first or generate a new script.
                 </p>
@@ -250,7 +246,7 @@ export function GenerateSheet({
                     <div className="text-sm text-muted-foreground">
                       {activeConversationId === convo.id ? (
                         <>
-                          <ScriptDisplay content={convo.script} />
+                          <ScriptDisplay content={generatedScript || convo.script} />
                           {isGeneratingScript && (
                             <span className="inline-flex">
                               <span className="animate-pulse">▊</span>
